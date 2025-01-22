@@ -1,0 +1,158 @@
+#ifndef SS_BUILTIN_HPP
+#define SS_BUILTIN_HPP
+
+#include <string.h>
+#include <cassert>
+#include <vector>
+#include <map>
+#include <optional>
+#include <functional>
+#include <memory>
+#include <random>
+
+#ifndef NULL 
+#define NULL 0
+#endif
+
+typedef int __ss_int;
+typedef double __ss_float;
+typedef bool __ss_bool;
+typedef std::vector<__ss_int> __ss_list;
+typedef std::string __ss_str;
+
+// ESBMC verification support
+extern "C" {
+    __ss_int __ESBMC_nondet_int();
+    void __ESBMC_assume(__ss_bool assumption);
+    void __ESBMC_assert(__ss_bool assertion, const char* message);
+}
+
+// Assert macro
+#define ASSERT(x, msg) if(!(x)) { __ESBMC_assert(x, msg); }
+
+namespace shedskin {
+
+// Forward declarations
+class str;
+class class_;
+template<typename T> class List;
+template<typename K, typename V> class Dict;
+
+// Base class for all Python objects
+class pyobj {
+public:
+    class_ *__class__;
+    virtual ~pyobj() {}
+    virtual bool equals(const pyobj* other) const { return this == other; }
+    virtual str* __str__() const;
+    virtual size_t __hash__() const;
+};
+
+// String class
+class str : public pyobj {
+    std::string data;
+public:
+    str(const char* s) : data(s) {}
+    str(const std::string& s) : data(s) {}
+    const char* c_str() const { return data.c_str(); }
+    
+    virtual bool equals(const pyobj* other) const override {
+        if (const str* other_str = dynamic_cast<const str*>(other)) {
+            return data == other_str->data;
+        }
+        return false;
+    }
+    
+    virtual size_t __hash__() const override {
+        return std::hash<std::string>{}(data);
+    }
+};
+
+// Class metadata
+class class_ {
+public:
+    str *__name__;
+    class_ *__base__;
+    
+    class_(const char* name, class_* base = nullptr) : __base__(base) {
+        __name__ = new str(name);
+    }
+    
+    virtual bool isinstance(const pyobj* obj) const {
+        if (!obj) return false;
+        class_* cls = obj->__class__;
+        while (cls) {
+            if (cls == this) return true;
+            cls = cls->__base__;
+        }
+        return false;
+    }
+};
+
+// List template
+template<typename T>
+class List : public pyobj {
+    std::vector<T> items;
+public:
+    List() {}
+    void append(const T& item) { items.push_back(item); }
+    size_t size() const { return items.size(); }
+    T& operator[](size_t i) { return items[i]; }
+    const T& operator[](size_t i) const { return items[i]; }
+    
+    typename std::vector<T>::iterator begin() { return items.begin(); }
+    typename std::vector<T>::iterator end() { return items.end(); }
+};
+
+// Dictionary template
+template<typename K, typename V>
+class Dict : public pyobj {
+    std::map<K, V> items;
+public:
+    Dict() {}
+    V& operator[](const K& key) { return items[key]; }
+    bool contains(const K& key) const { return items.find(key) != items.end(); }
+};
+
+// Optional type support
+template<typename T>
+using Optional = std::optional<T>;
+
+// Random number generation support
+namespace random {
+    inline __ss_int randrange(__ss_int start, __ss_int stop) {
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        std::uniform_int_distribution<__ss_int> dist(start, stop - 1);
+        return dist(gen);
+    }
+    
+    template<typename T>
+    T choice(const List<T>& seq) {
+        if (seq.size() == 0) throw std::runtime_error("Cannot choose from empty sequence");
+        return seq[randrange(0, seq.size())];
+    }
+}
+
+// Comparison functions
+inline __ss_bool __eq(pyobj* a, pyobj* b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    return a->equals(b);
+}
+
+inline __ss_bool ___bool(__ss_bool b) {
+    return b;
+}
+
+} // namespace shedskin
+
+// Global initialization
+extern "C" {
+    void __init();
+    void __start(void (*initfunc)()) {
+        initfunc();
+    }
+}
+
+#endif // SS_BUILTIN_HPP
