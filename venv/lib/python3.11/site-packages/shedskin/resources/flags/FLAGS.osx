@@ -1,0 +1,3 @@
+CXX?=g++
+CXXFLAGS?=-O2 -std=c++17 -Wno-deprecated $(CPPFLAGS)
+LDLIBS?=-lgc -lgctba -lpcre
