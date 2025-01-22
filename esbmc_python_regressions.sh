@@ -207,7 +207,7 @@ echo "+--------------------------------+-----------+-----------+--------+"
 
 for row in "${table_rows[@]}"; do
     IFS='|' read -r test_name expected actual match <<< "$row"
-    printf "| %-30s | %-9s | %-9s | %-6s   |\n" "$test_name" "$expected" "$actual" "$match"
+    printf "| %-30s | %-9s | %-9s | %-8s |\n" "$test_name" "$expected" "$actual" "$match"
 done
 
 echo "+--------------------------------+-----------+-----------+--------+"
