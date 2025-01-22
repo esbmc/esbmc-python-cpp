@@ -258,6 +258,27 @@ public:
     Iterator end() { return Iterator(nullptr); }
     const Iterator begin() const { return Iterator(head); }
     const Iterator end() const { return Iterator(nullptr); }
+
+    // Modify the for_in_loop class inside list class (around line 263):
+    class for_in_loop {
+        Iterator it;
+        Iterator end_it;
+    public:
+        // Add default constructor
+        for_in_loop() : it(nullptr), end_it(nullptr) {}
+        
+        // Keep existing constructor
+        for_in_loop(list<T>& l) : it(l.head), end_it(nullptr) {}
+        
+        bool __next__(T& ref) {
+            if (it != end_it) {
+                ref = *it;
+                ++it;
+                return true;
+            }
+            return false;
+        }
+    };
 };
 
 // Global helper functions

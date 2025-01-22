@@ -28,7 +28,7 @@ def main():
     actions = [Down(), Up()]
     while True:
         enabled_actions = list_comp(actions, lambda a: a.pre())
-        assert False
+        assert 0 == 1
         if enabled_actions:
             length = len(enabled_actions)
             action_nr = random.randint(0, length-1)
@@ -36,6 +36,6 @@ def main():
             action = enabled_actions[action_nr]
             action.act()
             time.sleep(0.5)
-            
+
 if __name__ == "__main__":
     main()
