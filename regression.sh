@@ -9,6 +9,7 @@ declare -a test_cases=(
     "examples/example_3_dataclasses.py:pass"
     "examples/test_class_inheritance.py:pass"
     "examples/example_15_dictionary.py:pass"
+    "examples/example_13_sleep.py:pass"
 )
 
 # Variable to track overall success
