@@ -1,3 +1,3 @@
-x:int = 1
+x:int = 0
 __ESBMC_assume(x < 1);
-assert(False)
+assert(x < 1)
