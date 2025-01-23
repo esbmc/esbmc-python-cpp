@@ -1,3 +1,5 @@
+from numpy import uint64
+
 A = 2**4
 assert A == 16
 
@@ -12,5 +14,3 @@ assert D == 2
 
 E = uint64(2**4 - 1)
 assert E == 15
-
-
