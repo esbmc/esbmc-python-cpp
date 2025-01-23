@@ -1,3 +1,5 @@
+class ValueError(Exception):
+    pass
 def foo(value:int) -> int:
     if value < 0:
         raise ValueError("Negative value!")
