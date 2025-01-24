@@ -47,6 +47,13 @@ TEMP_DIR=$(mktemp -d)
 echo "Working directory: $TEMP_DIR"
 OLD_PWD=$(pwd)
 
+# Copy import file 
+filesImport=$(ls module_import/)
+for file in $filesImport
+do
+    cp "module_import/$file" "$TEMP_DIR/${file}"
+done
+
 # Copy necessary files
 cp "$FULLPATH" "$TEMP_DIR/${FILENAME}.py"
 [ -f "esbmc.py" ] && cp "esbmc.py" "$TEMP_DIR/"
