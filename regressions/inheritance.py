@@ -33,5 +33,6 @@ c: int = obj.bar()  # Testing the overridden 'bar' method in the derived class
 assert c == 2  # Asserting that the overridden 'bar' method returns the expected value (2)
 
 
-class MyFloat(float):
-  pass
+class MyFloat:
+    def __init__(self, value=0.0):
+        self.value = float(value)

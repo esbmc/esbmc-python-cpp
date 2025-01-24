@@ -1,6 +1,5 @@
 class MyClass:
-    @classmethod
-    def my_method(cls) -> int:
+    def my_method(self, cls) -> int:
         return 1
 
 assert MyClass.my_method() == 1
