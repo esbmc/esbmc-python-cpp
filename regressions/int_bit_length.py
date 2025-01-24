@@ -22,5 +22,5 @@ assert f == 3
 g = e.bit_length() - 1
 assert g == 2
 
-def foo(x:int) -> None:
+def foo2(x:int) -> None:
   y = x.bit_length()

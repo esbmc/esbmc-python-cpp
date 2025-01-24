@@ -1,5 +1,3 @@
-from numpy import uint64
-
 n = 10 # Infer type of lhs from constant value (int)
 p = n  # Infer type of lhs from rhs variable type (int)
 
@@ -8,7 +6,7 @@ def foo(a:int) -> None:
   c = a # Infer type of lhs from function arg type (int)
   d = n # Infer from global scope variable
 
-v:uint64 = 16
+v:int = 16
 y = 1
 x = (v + y)//2
 

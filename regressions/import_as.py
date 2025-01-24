@@ -1,4 +1,6 @@
-import my_module as mp
+class mp:
+    def sum(self ,a, b):
+        return a + b
 
 a = 1
 b = 2

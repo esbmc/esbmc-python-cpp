@@ -1,3 +1,3 @@
 class MyClass:
-    def foo() -> None:
+    def foo(self) -> None:
         x = 1

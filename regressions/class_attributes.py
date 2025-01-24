@@ -9,9 +9,9 @@ class MyClass:
        self._class_attr = None
 
    def get_attr(self):
-       if hasattr(self, '_class_attr'):
-           return self._class_attr
-       return MyClass.class_attr
+        if self._class_attr is not None:
+            return self._class_attr
+        return MyClass.class_attr
 
    def set_attr(self, value):
        self._class_attr = value

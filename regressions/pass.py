@@ -1,7 +1,7 @@
 class MyClass:
   x:int
 
-  def foo():
+  def foo(self):
     pass
 
 class EmptyClass:
