@@ -1,6 +1,4 @@
-class OtherClass:
-    def foo(self):
-        return 2
+import other
 
-obj = OtherClass()
+obj = other.OtherClass()
 assert obj.foo() == 2

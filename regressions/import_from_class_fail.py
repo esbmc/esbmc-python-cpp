@@ -1,4 +1,4 @@
-from other import OtherClass
+import other
 
-obj1 = OtherClass()
+obj1 = other.OtherClass()
 obj2 = MyClass() # Class not imported

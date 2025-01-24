@@ -1,13 +1,9 @@
-def custom_sum(a, b):
-    return a + b
+from other import sum_values, sub_values
 
-def custom_sub(a, b):
-    return a - b
-
-assert custom_sum(1,2) == 3
+assert sum_values(1,2) == 3
 
 a = 2
 b = 1
-x = custom_sub(a,b)
+x = sub_values(a,b)
 
 assert x == 1

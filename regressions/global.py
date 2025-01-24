@@ -1,8 +1,7 @@
-class OtherClass:
-  pass
+import other
 
 class MyClass:
-  m_data: OtherClass
+  m_data: other.OtherClass
 
 a = 1
 d = 2
