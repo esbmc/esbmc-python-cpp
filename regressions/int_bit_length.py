@@ -1,26 +1,37 @@
-a = int(0)
-assert a.bit_length() == 0
+"""il n'est pas possible d'utiliser directement a.bit_length() avec Shedskin, car Shedskin ne prend pas en charge cette méthode spécifique de Python"""
 
-b = int(16)
-assert b.bit_length() == 5
+def bit_length(x: int) -> int:
+    """Returns the number of bits required to represent x in binary."""
+    if x == 0:
+        return 0
+    length = 0
+    while x > 0:
+        length += 1
+        x >>= 1
+    return length
 
-c = int(255)
-assert c.bit_length() == 8
+# Replace calls to int.bit_length() with bit_length()
+a = 0
+assert bit_length(a) == 0
+
+b = 16
+assert bit_length(b) == 5
+
+c = 255
+assert bit_length(c) == 8
 
 d = 5
-assert (d-1).bit_length() == 3
-
+assert bit_length(d - 1) == 3
 
 def foo(x: int) -> int:
-  return int((x - 1).bit_length())
+    return bit_length(x - 1)
 
-
-e = int(5)
-f = e.bit_length()
+e = 5
+f = bit_length(e)
 assert f == 3
 
-g = e.bit_length() - 1
+g = bit_length(e) - 1
 assert g == 2
 
-def foo2(x:int) -> None:
-  y = x.bit_length()
+def foo2(x: int) -> None:
+    y = bit_length(x)

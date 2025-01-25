@@ -1,9 +1,10 @@
-from other import sum_values, sub_values
+import other
 
-assert sum_values(1,2) == 3
+x = other.sub_values(1, 2)
+assert x == 3
 
 a = 2
 b = 1
-x = sub_values(a,b)
+x = other.sub_values(a,b)
 
 assert x == 1

@@ -55,7 +55,25 @@ namespace shedskin {
         str* lower() const;
         str* replace(const str* old_str, const str* new_str) const;
         str* format() const;
+
+        char __getfast__(__ss_int i) const { 
+            return data[i]; 
+        }
+
+        __ss_int __len__() const { 
+            return data ? strlen(data) : 0; 
+        }
+
+        str* __getitem__(__ss_int i) const {
+            if (i < 0) i += __len__();
+            // if (i < 0 || i >= __len__());
+            return __char_cache[(unsigned char)data[i]];
+        }
     };
+
+    __ss_int len(str* s) {
+        return s->__len__();
+    }
 
     class class_ {
     public:
@@ -123,6 +141,19 @@ namespace shedskin {
         if (a == b) return true;
         if (!a || !b) return false;
         return a->equals(b);
+    }
+
+    inline bool __eq(char a, const str* b) {
+        if (!b || !b->data) return false;
+        return a == b->data[0];
+    }
+
+    inline bool __eq(const str* a, char b) {
+        return __eq(b, a);
+    }
+
+    bool __eq(char a, char b) {
+        return a == b;
     }
 
     inline bool __ne(pyobj* a, pyobj* b) {

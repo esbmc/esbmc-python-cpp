@@ -261,15 +261,15 @@ public:
 
     // Modify the for_in_loop class inside list class (around line 263):
     class for_in_loop {
-        Iterator it;
-        Iterator end_it;
+        typename list<T>::Iterator it;
+        typename list<T>::Iterator end_it;
     public:
-        // Add default constructor
+        // Ajout d'un constructeur par défaut
         for_in_loop() : it(nullptr), end_it(nullptr) {}
-        
-        // Keep existing constructor
-        for_in_loop(list<T>& l) : it(l.head), end_it(nullptr) {}
-        
+
+        // Constructeur principal
+        for_in_loop(list<T>& l) : it(l.begin()), end_it(l.end()) {}
+
         bool __next__(T& ref) {
             if (it != end_it) {
                 ref = *it;
