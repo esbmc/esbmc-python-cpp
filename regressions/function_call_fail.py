@@ -1,4 +1,4 @@
-def division_by_zero() -> None:
-    result:float = 0-5
+def division_by_zero(y:int) -> None:
+    result:float = 0-y
 
 division_by_zero()

@@ -1,54 +1,13 @@
 #!/bin/bash
 
-# declare -a test_cases=($(ls regressions/*.py | while read -r file; do
-#     filename=$(basename "$file")
-#     if [[ $filename =~ fail\.py$ ]]; then
-#         echo "regressions/$filename:fail"
-#     else
-#         echo "regressions/$filename:pass"
-#     fi
-# done))
-
-declare -a test_cases=(
-    "regressions/arith_ops_fail.py:fail"
-    # "regressions/assert_fail.py:fail"
-    # "regressions/assign_fail.py:fail"
-    # "regressions/bitwise_fail.py:fail"
-    # "regressions/bytes_assert_fail.py:fail"
-    # "regressions/bytes_bounds_fail.py:fail"
-    # "regressions/chained_comparison_fail.py:fail"
-    # "regressions/classes_fail.py:fail"
-    # "regressions/compound_assign_fail.py:fail"
-    # "regressions/constants_fail.py:fail"
-    # "regressions/esbmc_assume_fail.py:fail"
-    # "regressions/float_fail.py:fail"
-    # "regressions/for_loop_fail.py:fail"
-    # "regressions/function_call_fail.py:fail"
-    # "regressions/function_option_fail.py:fail"
-    # "regressions/function_params_fail.py:fail"
-    # "regressions/function_return_fail.py:fail"
-    # "regressions/if_else_fail.py:fail"
-    # "regressions/import_from_class_fail.py:fail"
-    # "regressions/inheritance_fail.py:fail"
-    # "regressions/int_bit_length_fail.py:fail"
-    # "regressions/int_from_bytes_fail.py:fail"
-    # "regressions/len2_fail.py:fail"
-    # "regressions/len_fail.py:fail"
-    # "regressions/list_fail.py:fail"
-    # "regressions/logical_not_fail.py:fail"
-    # "regressions/mod_fail.py:fail"
-    # "regressions/nondet_fail.py:fail"
-    # "regressions/nondet_verifier_fail.py:fail"
-    # "regressions/range_fail.py:fail"
-    # "regressions/recursion_fail.py:fail"
-    # "regressions/strings_bounds_fail.py:fail"
-    # "regressions/strings_concat_fail.py:fail"
-    # "regressions/strings_eq_fail.py:fail"
-    # "regressions/verifier_assume_fail.py:fail"
-    # "regressions/while_break_fail.py:fail"
-    # "regressions/while_continue_fail.py:fail"
-    # "regressions/while_fail.py:fail"
-)
+declare -a test_cases=($(ls regressions/*.py | while read -r file; do
+    filename=$(basename "$file")
+    if [[ $filename =~ fail\.py$ ]]; then
+        echo "regressions/$filename:fail"
+    else
+        echo "regressions/$filename:pass"
+    fi
+done))
 
 
 # Variables pour les statistiques
