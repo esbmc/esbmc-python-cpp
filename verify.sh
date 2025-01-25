@@ -79,21 +79,23 @@ if [ -f "${FILENAME}.cpp" ]; then
    echo "Running ESBMC..."
    if [ "$USE_DOCKER" = true ]; then
        if [ ! -z "$CONTAINER_ID" ]; then
-           docker exec "$CONTAINER_ID" mkdir -p /workspace
-           docker cp . "$CONTAINER_ID":/workspace/
-           docker exec -w /workspace "$CONTAINER_ID" \
+            docker exec "$CONTAINER_ID" mkdir -p /workspace
+            docker cp . "$CONTAINER_ID":/workspace/
+            docker exec -w /workspace "$CONTAINER_ID" \
                esbmc --std c++17 --segfault-handler \
                -I/usr/include -I/usr/local/include -I. \
                "${FILENAME}.cpp" --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets
-           docker exec "$CONTAINER_ID" rm -rf /workspace/*
+            ESBMC_EXIT=$?
+            docker exec "$CONTAINER_ID" rm -rf /workspace/*
        else
-           docker run --rm \
+            docker run --rm \
                -v "$(pwd)":/workspace \
                -w /workspace \
                "$DOCKER_IMAGE" \
                esbmc --std c++17 --segfault-handler \
                -I/usr/include -I/usr/local/include -I. \
                "${FILENAME}.cpp" --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets
+            ESBMC_EXIT=$?
        fi
    else
        GCC_LIB_PATH=$(dirname $(gcc -print-libgcc-file-name))
