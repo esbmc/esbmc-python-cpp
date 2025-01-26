@@ -1,4 +1,4 @@
-"""il n'est pas possible d'utiliser directement x.bit_length() avec Shedskin, car Shedskin ne prend pas en charge cette méthode spécifique de Python"""
+"""it's not possible to use x.bit_length() directly with Shedskin, as Shedskin doesn't support this Python-specific method"""
 def bit_length(x: int) -> int:
     """Returns the number of bits required to represent x in binary."""
     if x == 0:
