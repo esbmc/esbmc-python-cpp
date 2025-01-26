@@ -47,7 +47,7 @@ TEMP_DIR=$(mktemp -d)
 echo "Working directory: $TEMP_DIR"
 OLD_PWD=$(pwd)
 
-# Copy import file 
+# Copy import file
 filesImport=$(ls module_import/)
 for file in $filesImport
 do
@@ -104,7 +104,7 @@ if [ -f "${FILENAME}.cpp" ]; then
        esbmc --std c++17 --segfault-handler \
            -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
            "${FILENAME}.cpp" --no-bounds-check --no-div-by-zero-check --no-unwinding-assertions \
-           --unwind 10 --partial-loops --no-pointer-check --no-align-check --add-symex-value-sets
+           --unwind 10 --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace
        ESBMC_EXIT=$?
    fi
 else
