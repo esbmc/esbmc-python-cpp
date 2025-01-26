@@ -180,6 +180,15 @@ namespace shedskin {
         }
         return a % b;
     }
+    
+    // Defining __divs to manage whole divisions
+    inline __ss_int __divs(__ss_int a, __ss_int b) {
+        if (b == 0) {
+            std::cerr << "Error: Division by zero detected" << std::endl;
+            throw std::runtime_error("Division by zero detected");
+        }
+        return a / b; // Renvoie le résultat de la division entière
+    }
 
     void __start(void (*initfunc)()) {
         initfunc();
