@@ -21,6 +21,14 @@ private:
     Node* tail;  // Tail pointer for O(1) append
     __ss_int size_;
 
+    void append_multiple() {}
+
+    template<typename First, typename... Rest>
+    void append_multiple(First first, Rest... rest) {
+        append(first); // Ajouter l'élément actuel
+        append_multiple(rest...); // Appel récursif pour ajouter les autres
+    }
+
 public:
     // Default constructor
     list() : head(nullptr), tail(nullptr), size_(0) {}
@@ -44,6 +52,14 @@ public:
         append(v1);
         if(count > 1) append(v2);
         if(count > 2) append(v3);
+    }
+
+    template<typename... Args>
+    list(__ss_int count, Args... args) : head(nullptr), tail(nullptr), size_(0) {
+        if (sizeof...(args) != count) {
+            throw std::invalid_argument("The number of arguments must correspond to the counter.");
+        }
+        append_multiple(args...);
     }
 
     // Copy constructor
@@ -280,6 +296,7 @@ public:
         }
     };
 };
+
 
 // Global helper functions
 template<typename T>
