@@ -24,9 +24,6 @@ def __VERIFIER_nondet_bool():
     """Simulates a non-deterministic Boolean value."""
     return bool(random.randint(0, 1))
 
-def nondet_int():
-    """Simulates a non-deterministic integer value."""
-    return 42  # Example: Replace with a real value.
 def nondet_bool():
     """Simulates a non-deterministic Boolean value."""
     return True 
