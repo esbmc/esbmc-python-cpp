@@ -9,6 +9,7 @@ class MyClass:
        self._class_attr = None
 
    def get_attr(self):
+        # Checks if _class_attr is defined (no hasattr needed)
         if self._class_attr is not None:
             return self._class_attr
         return MyClass.class_attr

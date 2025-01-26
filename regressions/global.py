@@ -6,7 +6,7 @@ class MyClass:
 a = 1
 d = 2
 e = 1
-z = blah()
+z = other.blah()
 
 def bar() -> None:
   f = e

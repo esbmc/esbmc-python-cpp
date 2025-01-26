@@ -206,6 +206,19 @@ str* __mod6(const str* format_str, int count, ...) {
     return str_result;
 }
 
+str* str::__add__(const str* other) const {
+    if (!this->data || !other->data) {
+        return new str();
+    }
+    size_t new_len = strlen(this->data) + strlen(other->data) + 1;
+    char* result = new char[new_len];
+    strcpy(result, this->data);
+    strcat(result, other->data);
+    str* concatenated = new str(result);
+    delete[] result;
+    return concatenated;
+}
+
 } // namespace shedskin
 
 namespace __shedskin__ = shedskin;

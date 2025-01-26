@@ -1,4 +1,4 @@
-import other
+from other import OtherFunction, OtherClass
 
-assert other.OtherFunction() == 1
-assert other.OtherClass.foo() == 3
+assert OtherFunction() == 1
+assert OtherClass.foo() == 3

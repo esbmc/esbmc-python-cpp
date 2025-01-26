@@ -58,7 +58,30 @@ public:
 // Range class
 class __xrange : public __iter<__ss_int> {
     __ss_int start, stop, step, current;
+
+
 public:
+    class for_in_loop {
+        __xrange* range;
+        __ss_int value;
+
+    public:
+        // Constructeur par défaut
+        for_in_loop() : range(nullptr), value(0) {}
+
+        // Constructeur principal
+        for_in_loop(__xrange* r) : range(r), value(r->current) {}
+
+        bool __next__(__ss_int& ref) {
+            if (range && range->current < range->stop) {
+                ref = range->current;
+                range->current += range->step;
+                return true;
+            }
+            return false;
+        }
+    };
+
     __xrange(__ss_int stop) : start(0), stop(stop), step(1), current(0) {}
     __xrange(__ss_int start, __ss_int stop) : start(start), stop(stop), step(1), current(start) {}
     __xrange(__ss_int start, __ss_int stop, __ss_int step) 
@@ -76,6 +99,10 @@ public:
         return result;
     }
 };
+
+inline shedskin::__xrange* range(__ss_int start, __ss_int stop, __ss_int step = 1) {
+    return new shedskin::__xrange(start, stop, step);
+}
 
 // Helper functions
 template<typename T>

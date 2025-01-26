@@ -55,6 +55,7 @@ namespace shedskin {
         str* lower() const;
         str* replace(const str* old_str, const str* new_str) const;
         str* format() const;
+        str* __add__(const str* other) const;
 
         char __getfast__(__ss_int i) const { 
             return data[i]; 
@@ -161,7 +162,25 @@ namespace shedskin {
     }
 
     void __init() {}
+
+    int __int(int value) {
+        return value;
+    }
+
+    int __floordiv(int a, int b) {
+        if (b == 0) {
+            throw std::runtime_error("Division by zero");
+        }
+        return a / b;
+    }
     
+    inline __ss_int __mods(__ss_int a, __ss_int b) {
+        if (b == 0) {
+            throw std::runtime_error("Modulo by zero is undefined");
+        }
+        return a % b;
+    }
+
     void __start(void (*initfunc)()) {
         initfunc();
     }
@@ -174,5 +193,6 @@ namespace ss = shedskin;
 #include "set.hpp"
 #include "string.hpp"
 #include "tuple.hpp"
+#include "bytes.hpp"
 
 #endif
