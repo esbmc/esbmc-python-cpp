@@ -82,7 +82,7 @@ namespace shedskin {
     bool isinstance_str(str *s) { return true; }
 
     inline void print() {
-        std::cout << std::endl;
+       // std::cout << std::endl;
     }
 
     template<typename T>
