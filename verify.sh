@@ -95,7 +95,7 @@ if [ -f "${FILENAME}.cpp" ]; then
        esbmc --std c++17 --segfault-handler \
            -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
            "${FILENAME}.cpp" --no-bounds-check --no-div-by-zero-check \
-           --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets
+           --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace
        ESBMC_EXIT=$?
    fi
 else
