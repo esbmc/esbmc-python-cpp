@@ -21,17 +21,17 @@ class Down(Action):
         assert counter >= 0
         print(f'counting down: {counter}')
 
-        
+
 class Up(Action):
     def pre(self) -> bool:
-        return counter < 10
+        return counter < 1
     def act(self):
         global counter
         counter += 1
-        assert counter <= 10
+        assert counter <= 1
         print(f'counting up: {counter}')
 
-        
+
 def main():
     actions = [Down(), Up()]
     while True:
@@ -43,7 +43,7 @@ def main():
             action = enabled_actions[action_nr]
             action.act()
 
-counter: int = 5
-            
+counter: int = 0
+
 if __name__ == "__main__":
     main()
