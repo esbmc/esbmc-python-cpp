@@ -19,13 +19,12 @@ static const bool False = false;
 #define __NOT(x) (!(x))
 #define __AND(a, b, t) ((!___bool(__ ## t = a))?(__ ## t):(b))
 
-
 namespace shedskin {
     class str;
     class class_;
 
-    // Cache global pour les caractères individuels
-    str* __char_cache[256] = {nullptr};
+    // Forward declare char_cache array - definition will be in cpp
+    extern str* __char_cache[256];
     
     class pyobj {
     public:
@@ -51,7 +50,6 @@ namespace shedskin {
             return strcmp(data, other_str->data) == 0;
         }
 
-
         str* strip() const;
         str* upper() const;
         str* lower() const;
@@ -64,30 +62,12 @@ namespace shedskin {
         }
 
         __ss_int __len__() const { 
-            return data ? static_cast<__ss_int>(strlen(data)) : 0; 
+            return data ? strlen(data) : 0; 
         }
 
         str* __getitem__(__ss_int i) const;
     };
 
-    void initialize_char_cache() {
-        for (int i = 0; i < 256; ++i) {
-            char c[2] = {static_cast<char>(i), '\0'};
-            __char_cache[i] = new str(c);
-            std::cout << "Initialized __char_cache[" << i << "] with '" << c << "'\n";
-        }
-    }
-
-    // Static initializer to ensure cache is initialized
-    struct StaticInitializer {
-        StaticInitializer() {
-            initialize_char_cache();
-        }
-    };
-
-    // Static instance to trigger initialization at runtime
-    static StaticInitializer __static_initializer;
-    
     __ss_int len(str* s) {
         return s->__len__();
     }
