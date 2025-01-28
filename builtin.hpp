@@ -97,22 +97,22 @@ namespace shedskin {
     bool isinstance_str(str *s) { return true; }
 
     inline void print() {
-        std::cout << std::endl;
+       // std::cout << std::endl;
     }
 
     template<typename T>
     void print(const T& value) {
-        std::cout << value << std::endl;
+       // std::cout << value << std::endl;
     }
 
     template<typename T1, typename T2>
     void print(const T1& value1, const T2& value2) {
-        std::cout << value1 << value2 << std::endl;
+       // std::cout << value1 << value2 << std::endl;
     }
 
     template<typename... Args>
     void print(const Args&... args) {
-        (std::cout << ... << args) << std::endl;
+        //(std::cout << ... << args) << std::endl;
     }
 
     inline __ss_int power(__ss_int base, __ss_int exp) {
