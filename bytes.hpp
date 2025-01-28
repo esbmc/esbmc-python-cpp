@@ -88,11 +88,15 @@ namespace shedskin {
             return length;
         }
 
-        unsigned char getitem(int index) const {
+        const unsigned char* data_ptr() const {
+            return data;
+        }
+
+        unsigned char __getitem__(__ss_int index) const {
             if (index < 0) {
-                index += length;
+                index += static_cast<__ss_int>(length);  // Support pour les index négatifs
             }
-            if (index < 0 || index >= static_cast<int>(length)) {
+            if (index < 0 || index >= static_cast<__ss_int>(length)) {
                 throw std::out_of_range("Index out of range");
             }
             return data[index];
