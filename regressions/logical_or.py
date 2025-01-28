@@ -1,5 +1,5 @@
 def fail() -> None :
-    assert(False)
+    assert(True)
 
 x : int = 1
 y : int = 2

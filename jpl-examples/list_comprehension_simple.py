@@ -22,6 +22,7 @@ class Down(Action):
         print(f'counting down: {counter}')
 
 
+
 class Up(Action):
     def pre(self) -> bool:
         return counter < 1

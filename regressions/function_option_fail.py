@@ -1,4 +1,5 @@
-def ok() -> None:
+def ok(y:int) -> None:
+    
     assert(1)
 
 def fail() -> None:

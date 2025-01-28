@@ -55,7 +55,22 @@ namespace shedskin {
         str* lower() const;
         str* replace(const str* old_str, const str* new_str) const;
         str* format() const;
+        str* __add__(const str* other) const;
+
+        char __getfast__(__ss_int i) const { 
+            return data[i]; 
+        }
+
+        __ss_int __len__() const { 
+            return data ? strlen(data) : 0; 
+        }
+
+        str* __getitem__(__ss_int i) const;
     };
+
+    __ss_int len(str* s) {
+        return s->__len__();
+    }
 
     class class_ {
     public:
@@ -125,12 +140,52 @@ namespace shedskin {
         return a->equals(b);
     }
 
+    inline bool __eq(char a, const str* b) {
+        if (!b || !b->data) return false;
+        return a == b->data[0];
+    }
+
+    inline bool __eq(const str* a, char b) {
+        return __eq(b, a);
+    }
+
+    bool __eq(char a, char b) {
+        return a == b;
+    }
+
     inline bool __ne(pyobj* a, pyobj* b) {
         return !__eq(a, b);
     }
 
     void __init() {}
+
+    int __int(int value) {
+        return value;
+    }
+
+    int __floordiv(int a, int b) {
+        if (b == 0) {
+            throw std::runtime_error("Division by zero");
+        }
+        return a / b;
+    }
     
+    inline __ss_int __mods(__ss_int a, __ss_int b) {
+        if (b == 0) {
+            throw std::runtime_error("Modulo by zero is undefined");
+        }
+        return a % b;
+    }
+    
+    // Defining __divs to manage whole divisions
+    inline __ss_int __divs(__ss_int a, __ss_int b) {
+        if (b == 0) {
+            std::cerr << "Error: Division by zero detected" << std::endl;
+            throw std::runtime_error("Division by zero detected");
+        }
+        return a / b; // Renvoie le résultat de la division entière
+    }
+
     void __start(void (*initfunc)()) {
         initfunc();
     }
@@ -143,5 +198,7 @@ namespace ss = shedskin;
 #include "set.hpp"
 #include "string.hpp"
 #include "tuple.hpp"
+#include "bytes.hpp"
+#include "math.hpp"
 
 #endif

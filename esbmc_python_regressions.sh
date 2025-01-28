@@ -9,6 +9,7 @@ declare -a test_cases=($(ls regressions/*.py | while read -r file; do
     fi
 done))
 
+
 # Variables pour les statistiques
 total_tests=0
 passed_tests=0
@@ -58,10 +59,6 @@ for test in "${test_cases[@]}"; do
         match_symbol="✓"
         ((passed_tests++))
     elif [ "$expected" == "pass" ] && [ $actual_result -eq 0 ]; then
-        # If success was expected AND success was achieved (actual_result == 0)
-        match_symbol="✓"
-        ((passed_tests++))
-    elif [ "$expected" == "fail" ] && [ $actual_result -eq 0 ]; then
         # If success was expected AND success was achieved (actual_result == 0)
         match_symbol="✓"
         ((passed_tests++))

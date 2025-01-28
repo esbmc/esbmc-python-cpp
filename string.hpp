@@ -206,6 +206,36 @@ str* __mod6(const str* format_str, int count, ...) {
     return str_result;
 }
 
+str* str::__add__(const str* other) const {
+    if (!this->data || !other->data) {
+        return new str();
+    }
+    size_t new_len = strlen(this->data) + strlen(other->data) + 1;
+    char* result = new char[new_len];
+    strcpy(result, this->data);
+    strcat(result, other->data);
+    str* concatenated = new str(result);
+    delete[] result;
+    return concatenated;
+}
+
+str* str::__getitem__(__ss_int i) const {
+    if (!data) {
+        throw std::out_of_range("Index out of range: string data is null");
+    }
+    if (i < 0) i += __len__();  // Managing negative indices
+    if (i < 0 || i >= __len__()) {
+        throw std::out_of_range("Index out of range: invalid index");
+    }
+    unsigned char char_index = static_cast<unsigned char>(data[i]);  // Retrieve character
+    if (!__char_cache[char_index]) {
+        // If the cache is not initialized for this character, initialize it.
+        char c[2] = {data[i], '\0'};  // Convert character to string
+        __char_cache[char_index] = new str(c);
+    }
+    return __char_cache[char_index];  // Return character from cache
+}
+
 } // namespace shedskin
 
 namespace __shedskin__ = shedskin;

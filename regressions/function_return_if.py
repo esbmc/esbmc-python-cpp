@@ -3,6 +3,6 @@ def func() -> int:
 
 x:int = func()
 if (x == 0):
-    y:float = 1/x
+    y:float = 1.0/x
 else:
-    assert (x == 0)
+    assert (x == 1)

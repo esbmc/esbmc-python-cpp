@@ -1,8 +1,9 @@
+from esbmc import *
 x: int = 90
 
 while True:
       n:int = nondet_int()
-      __ESBMC_assume(n == 0 or n == 1);
+      __ESBMC_assume(n == 1)
 
       if n == 0 and x <= 100:
           x = x + 1

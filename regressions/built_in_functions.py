@@ -1,3 +1,5 @@
+from esbmc import *
+
 def foo() -> None:
     a = int(2)
     assert a == 2

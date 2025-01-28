@@ -3,7 +3,7 @@ y : int = 2
 z : int = 3
 
 if (not (x == 2) and not (y == 2) and z == 3):
-    result : int = 1/0
+    result : int = 1.0/0
 
 
 class MyClass:
