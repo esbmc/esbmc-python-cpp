@@ -18,7 +18,6 @@ class Down(Action):
     def act(self):
         global counter
         counter -= 1
-        assert counter >= 0
         print(f'counting down: {counter}')
 
         
@@ -28,7 +27,6 @@ class Up(Action):
     def act(self):
         global counter
         counter += 1
-        assert counter <= 10
         print(f'counting up: {counter}')
 
 
