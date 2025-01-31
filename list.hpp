@@ -1,14 +1,14 @@
-#ifndef __LIST_HPP
-#define __LIST_HPP
+#ifndef SS_LIST_HPP
+#define SS_LIST_HPP
 
 namespace shedskin {
 
 // Forward declarations
 template<class K, class V> class dict;
 template<class T> class set;
-template<class T> class __iter;
+template<class T> class list;
 
-template<typename T>
+template<class T>
 class list : public pyobj {
 private:
     struct Node {
@@ -18,90 +18,64 @@ private:
     };
     
     Node* head;
-    Node* tail;  // Tail pointer for O(1) append
+    Node* tail;
     __ss_int size_;
 
-    void append_multiple() {}
-
-    template<typename First, typename... Rest>
-    void append_multiple(First first, Rest... rest) {
-        append(first); // Ajouter l'élément actuel
-        append_multiple(rest...); // Appel récursif pour ajouter les autres
-    }
-
 public:
-    // Default constructor
+    // Classe pour l'itération
+    class for_in_loop {
+    public:
+        Node* current;
+        for_in_loop(Node* n) : current(n) {}
+        for_in_loop() : current(nullptr) {}
+        bool has_next() const { return current != nullptr; }
+        T next() {
+            if (!current) throw std::runtime_error("No more elements");
+            T value = current->data;
+            current = current->next;
+            return value;
+        }
+    };
+
+    // Constructeurs
     list() : head(nullptr), tail(nullptr), size_(0) {}
     
-    // Single value constructor
     list(__ss_int count, const T& value) : head(nullptr), tail(nullptr), size_(0) {
-        if(count > 0) {
+        for(__ss_int i = 0; i < count; i++) {
             append(value);
-            if(count > 1) append(value);
         }
     }
-    
-    // Two value constructor
-    list(__ss_int count, const T& value1, const T& value2) : head(nullptr), tail(nullptr), size_(0) {
-        append(value1);
-        if(count > 1) append(value2);
+
+    list(__ss_int count, const T& v1, const T& v2) : head(nullptr), tail(nullptr), size_(0) {
+        if(count > 0) append(v1);
+        if(count > 1) append(v2);
     }
 
-    // Three value constructor
     list(__ss_int count, const T& v1, const T& v2, const T& v3) : head(nullptr), tail(nullptr), size_(0) {
-        append(v1);
+        if(count > 0) append(v1);
         if(count > 1) append(v2);
         if(count > 2) append(v3);
     }
 
-    template<typename... Args>
-    list(__ss_int count, Args... args) : head(nullptr), tail(nullptr), size_(0) {
-        if (sizeof...(args) != count) {
-            throw std::invalid_argument("The number of arguments must correspond to the counter.");
-        }
-        append_multiple(args...);
+    list(__ss_int count, const T& v1, const T& v2, const T& v3, const T& v4) : head(nullptr), tail(nullptr), size_(0) {
+        if(count > 0) append(v1);
+        if(count > 1) append(v2);
+        if(count > 2) append(v3);
+        if(count > 3) append(v4);
     }
 
-    // Copy constructor
-    list(list<T>* other) : head(nullptr), tail(nullptr), size_(0) {
-        if (other) {
-            for (__ss_int i = 0; i < other->size(); i++) {
-                append(other->__getfast__(i));
-            }
-        }
+    list(__ss_int count, const T& v1, const T& v2, const T& v3, const T& v4, const T& v5) : head(nullptr), tail(nullptr), size_(0) {
+        if(count > 0) append(v1);
+        if(count > 1) append(v2);
+        if(count > 2) append(v3);
+        if(count > 3) append(v4);
+        if(count > 4) append(v5);
     }
 
-    // Iterator constructor
-    list(__iter<T>* iter) : head(nullptr), tail(nullptr), size_(0) {
-        if (iter) {
-            while (!iter->__stop_iteration) {
-                T item = iter->__get_next();
-                if (!iter->__stop_iteration) {
-                    append(item);
-                }
-            }
-        }
-    }
-    
-    // Destructor
     ~list() {
         clear();
     }
 
-    // Assignment operator
-    list<T>& operator=(const list<T>& other) {
-        if (this != &other) {
-            clear();
-            Node* current = other.head;
-            while (current) {
-                append(current->data);
-                current = current->next;
-            }
-        }
-        return *this;
-    }
-
-    // O(1) append operation using tail pointer
     void append(const T& value) {
         Node* newNode = new Node(value);
         if (!head) {
@@ -113,33 +87,6 @@ public:
         size_++;
     }
 
-    // Get element at index
-    T __getfast__(__ss_int index) const {
-        if (index < 0 || index >= size_) {
-            return T();
-        }
-        Node* current = head;
-        for (__ss_int i = 0; i < index && current; i++) {
-            current = current->next;
-        }
-        return current ? current->data : T();
-    }
-
-    // Set element at index
-    void __setitem__(__ss_int index, const T& value) {
-        if (index < 0 || index >= size_) {
-            return;
-        }
-        Node* current = head;
-        for (__ss_int i = 0; i < index && current; i++) {
-            current = current->next;
-        }
-        if (current) {
-            current->data = value;
-        }
-    }
-    
-    // Clear the list
     void clear() {
         while (head) {
             Node* temp = head;
@@ -149,85 +96,54 @@ public:
         tail = nullptr;
         size_ = 0;
     }
-    
-    // Get size
-    __ss_int size() const {
-        return size_;
+
+    bool __contains__(const T& value) const {
+        Node* current = head;
+        while (current) {
+            if (current->data == value) {
+                return true;
+            }
+            current = current->next;
+        }
+        return false;
     }
 
-    // Python-style len()
-    __ss_int __len__() const {
-        return size_;
-    }
-
-    // Python-style getitem
     T __getitem__(__ss_int index) const {
         if (index < 0) {
             index = size_ + index;
         }
-        return __getfast__(index);
-    }
-
-    // Remove element at index
-    void __remove__(__ss_int index) {
-        if (index < 0) {
-            index = size_ + index;
+        if (index < 0 || index >= size_) {
+            throw std::runtime_error("Index out of range");
         }
-        if (index < 0 || index >= size_) return;
         
         Node* current = head;
-        Node* previous = nullptr;
-        
-        for (__ss_int i = 0; i < index && current; i++) {
-            previous = current;
+        for (__ss_int i = 0; i < index; i++) {
             current = current->next;
         }
-        
-        if (!current) return;
-
-        if (previous) {
-            previous->next = current->next;
-            if (current == tail) {
-                tail = previous;
-            }
-        } else {
-            head = current->next;
-            if (head == nullptr) {
-                tail = nullptr;
-            }
-        }
-        
-        delete current;
-        size_--;
+        return current ? current->data : T();
     }
 
-    // Insert element at index
-    void insert(__ss_int index, const T& value) {
-        if (index < 0) {
-            index = size_ + index;
+    list<T>* __slice__(__ss_int length, __ss_int start, __ss_int stop, __ss_int step) const {
+        list<T>* result = new list<T>();
+        
+        if (start < 0) start = size_ + start;
+        if (stop < 0) stop = size_ + stop;
+        
+        start = (start < 0) ? 0 : (start >= size_ ? size_ : start);
+        stop = (stop < 0) ? 0 : (stop >= size_ ? size_ : stop);
+        
+        if (step == 0) throw std::runtime_error("slice step cannot be zero");
+        
+        for (__ss_int i = start; i < stop; i += step) {
+            result->append(__getitem__(i));
         }
-        if (index < 0) index = 0;
-        if (index >= size_) {
-            append(value);
-            return;
-        }
-
-        Node* newNode = new Node(value);
-        if (index == 0) {
-            newNode->next = head;
-            head = newNode;
-        } else {
-            Node* current = head;
-            for (__ss_int i = 0; i < index - 1; i++) {
-                current = current->next;
-            }
-            newNode->next = current->next;
-            current->next = newNode;
-        }
-        size_++;
+        
+        return result;
     }
 
-    // Check equality with another list
+    __ss_int __len__() const { return size_; }
+    Node* get_head() const { return head; }
+
     bool equals(const list<T>* other) const {
         if (!other || size_ != other->size_) return false;
         Node* n1 = head;
@@ -240,86 +156,136 @@ public:
         return true;
     }
 
-    // Get first element
-    T __getfirst__() const {
-        return head ? head->data : T();
-    }
-
-    // Get last element
-    T __getlast__() const {
-        return tail ? tail->data : T();
-    }
-
-    // Extend list with elements from another list
-    void extend(list<T>* other) {
-        if (!other) return;
-        Node* current = other->head;
+    list<T>* __add__(const list<T>* other) const {
+        list<T>* result = new list<T>();
+        
+        Node* current = head;
         while (current) {
-            append(current->data);
+            result->append(current->data);
             current = current->next;
         }
+        
+        if (other) {
+            current = other->head;
+            while (current) {
+                result->append(current->data);
+                current = current->next;
+            }
+        }
+        
+        return result;
     }
 
-    // Iterator support
-    class Iterator {
-        Node* current;
-    public:
-        Iterator(Node* node) : current(node) {}
-        Iterator& operator++() { if(current) current = current->next; return *this; }
-        bool operator!=(const Iterator& other) { return current != other.current; }
-        T& operator*() { return current->data; }
-    };
-
-    Iterator begin() { return Iterator(head); }
-    Iterator end() { return Iterator(nullptr); }
-    const Iterator begin() const { return Iterator(head); }
-    const Iterator end() const { return Iterator(nullptr); }
-
-    // Modify the for_in_loop class inside list class (around line 263):
-    class for_in_loop {
-        typename list<T>::Iterator it;
-        typename list<T>::Iterator end_it;
-    public:
-        // Ajout d'un constructeur par défaut
-        for_in_loop() : it(nullptr), end_it(nullptr) {}
-
-        // Constructeur principal
-        for_in_loop(list<T>& l) : it(l.begin()), end_it(l.end()) {}
-
-        bool __next__(T& ref) {
-            if (it != end_it) {
-                ref = *it;
-                ++it;
-                return true;
+    list<T>* __mul__(__ss_int n) const {
+        list<T>* result = new list<T>();
+        if (n <= 0) return result;
+        
+        for (__ss_int i = 0; i < n; i++) {
+            Node* current = head;
+            while (current) {
+                result->append(current->data);
+                current = current->next;
             }
-            return false;
         }
-    };
+        
+        return result;
+    }
+
+    list<T>* sorted() const {
+        list<T>* result = new list<T>(*this);
+        if (size_ <= 1) return result;
+
+        T* arr = new T[size_];
+        Node* current = head;
+        for (__ss_int i = 0; i < size_; i++) {
+            arr[i] = current->data;
+            current = current->next;
+        }
+        
+        for (__ss_int i = 0; i < size_ - 1; i++) {
+            for (__ss_int j = 0; j < size_ - i - 1; j++) {
+                if (arr[j] > arr[j + 1]) {
+                    T temp = arr[j];
+                    arr[j] = arr[j + 1];
+                    arr[j + 1] = temp;
+                }
+            }
+        }
+        
+        result->clear();
+        for (__ss_int i = 0; i < size_; i++) {
+            result->append(arr[i]);
+        }
+        
+        delete[] arr;
+        return result;
+    }
 };
 
-
-// Global helper functions
+// Fonctions globales
 template<typename T>
-__ss_int len(list<T>* lst) {
+__ss_int len(const list<T>* lst) {
     return lst ? lst->__len__() : 0;
 }
 
-template<class K, class V>
-__ss_int len(dict<K,V>* d) {
-    return d ? d->__len__() : 0;
-}
-
-template<class T>
-__ss_int len(set<T>* s) {
-    return s ? s->__len__() : 0;
-}
-
 template<typename T>
-bool __eq(list<T>* a, list<T>* b) {
+bool __eq(const list<T>* a, const list<T>* b) {
     if (!a || !b) return false;
     return a->equals(b);
 }
 
+template<typename T>
+list<T>* sorted(list<T>* lst, __ss_int a=0, __ss_int b=0, __ss_int c=0) {
+    if (!lst) return new list<T>();
+    return lst->sorted();
+}
+
+template<typename T>
+bool all(const list<T>* lst) {
+    if (!lst) return false;
+    for (__ss_int i = 0; i < lst->__len__(); i++) {
+        if (!lst->__getitem__(i)) return false;
+    }
+    return true;
+}
+
 } // namespace shedskin
+
+// Classe list_comp_0 globale
+class list_comp_0 {
+public:
+    shedskin::list<__ss_int>* list1;
+    __ss_int __last_yield;
+    bool __stop_iteration;
+    __ss_int x;  // Variable pour FOR_IN
+    shedskin::list<__ss_int>::for_in_loop __3;
+
+    list_comp_0(shedskin::list<__ss_int>* lst) : 
+        list1(lst), 
+        __last_yield(-1),
+        __stop_iteration(false),
+        __3(lst ? lst->get_head() : nullptr) {}
+
+    __ss_bool __get_next() {
+        static bool initialized = false;
+        if (!initialized) {
+            initialized = true;
+            if (__3.has_next()) {
+                x = __3.next();
+                return x != 0;
+            }
+            __stop_iteration = true;
+        }
+        return false;
+    }
+};
+
+bool all(list_comp_0* lst) {
+    if (!lst) return false;
+    while (!lst->__stop_iteration) {
+        if (!lst->__get_next()) return false;
+    }
+    return true;
+}
 
 #endif
