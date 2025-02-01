@@ -36,17 +36,17 @@ def test_list_properties():
     combined_list = list1 + list3
     assert combined_list == [1, 2, 3, 4, 5], f"Expected {list1} + {list3} to be [1, 2, 3, 4, 5]"
 
-    # # Test 8: List replication
-    # replicated_list = list3 * 2
-    # assert replicated_list == [4, 5, 4, 5], f"Expected {list3} * 2 to be [4, 5, 4, 5]"
+    # Test 8: List replication
+    replicated_list = list3 * 2
+    assert replicated_list == [4, 5, 4, 5], f"Expected {list3} * 2 to be [4, 5, 4, 5]"
 
-    # # Test 9: List slicing
+    # Test 9: List slicing
     # sublist = list1[1:3]
     # assert sublist == [2, 3], f"Expected slice of {list1} from index 1 to 3 to be [2, 3]"
 
-    # # Test 10: Empty list
-    # empty_list = []
-    # assert len(empty_list) == 0, "Expected empty list to have length 0"
+    # Test 10: Empty list
+    empty_list = []
+    assert len(empty_list) == 0, "Expected empty list to have length 0"
 
     print("All list property tests passed.")
 
