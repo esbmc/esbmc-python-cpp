@@ -1,174 +1,106 @@
-#ifndef SHEDSKIN_BYTES_HPP
-#define SHEDSKIN_BYTES_HPP
+#ifndef BUILTIN_HPP 
+#define BUILTIN_HPP
 
-#include <string>
-#include <cstring>
+// Basic type definitions 
+typedef unsigned long size_t; 
+#ifndef NULL 
+#define NULL 0 
+#endif
 
-namespace shedskin {
+namespace shedskin { 
+    // Core type definitions 
+    typedef long long __ss_int;
+    typedef double __ss_float;
+    typedef bool __ss_bool;
 
-// Forward declarations
-template<class T> class list;
-template<class T, class U> class tuple2;
-class str;
-class pyobj;
-template<class T> class pyiter;
+    // Global constants
+    extern __ss_bool True;
+    extern __ss_bool False;
 
-// Base template class for sequences
-template<class T>
-class pyseq {
-public:
-    virtual ~pyseq() {}
-    virtual T __getitem__(__ss_int i) = 0;
-    virtual __ss_int __len__() = 0;
-};
+    // Forward declarations for all commonly used types/classes 
+    class str; 
+    class class_; 
+    template<class T> class list; 
+    template<class T1, class T2> class tuple2;
 
-// Type definitions (without redefining True/False)
-typedef int __ss_int;
-typedef bool __ss_bool;
-typedef std::__1::string __GC_STRING;
+    // Operator macros
+    #define __OR(a, b, t) ((___bool(__ ## t = a))?(__ ## t):(b))
+    #define __AND(a, b, t) ((!___bool(__ ## t = a))?(__ ## t):(b))
+    #define __NOT(x) (__mbool(!(x)))
 
-class bytes : public pyseq<__ss_int> {
-protected:
-public:
-    __GC_STRING unit;
-    long hash;
-    int frozen;
-
-    // Constructors
-    bytes(int frozen=1) {}
-    bytes(const char *s) {}
-    bytes(bytes *b, int frozen=1) {}
-    bytes(__GC_STRING s, int frozen=1) {}
-    bytes(const char *s, int size, int frozen=1) {}
-
-    // Basic operations
-    inline __ss_int __getitem__(__ss_int i) override { return 0; }
-    inline __ss_int __getfast__(__ss_int i) { return 0; }
-    template<class U> bytes *join(U *) { return nullptr; }
-    inline __ss_int __len__() override { return 0; }
-    bytes *__slice__(__ss_int x, __ss_int l, __ss_int u, __ss_int s) { return nullptr; }
-
-    // String manipulation
-    bytes *rstrip(bytes *chars=0) { return nullptr; }
-    bytes *strip(bytes *chars=0) { return nullptr; }
-    bytes *lstrip(bytes *chars=0) { return nullptr; }
+    // Forward declarations from function.hpp 
+    template<class T> inline __ss_int __int(T t) { return static_cast<__ss_int>(t); }
+    template<class T> inline __ss_float __float(T t) { return static_cast<__ss_float>(t); }
+    template<class T> inline str* __str(T t) { return nullptr; }
+    template<class T> inline T __abs(T t) { return t < 0 ? -t : t; }
+    template<class T> inline __ss_int len(T x) { return 0; }
     
-    // Split operations
-    list<bytes *> *split(bytes *sep=0, __ss_int maxsplit=-1) { return nullptr; }
-    list<bytes *> *rsplit(bytes *sep=0, __ss_int maxsplit=-1) { return nullptr; }
-    tuple2<bytes *, bytes *> *rpartition(bytes *sep) { return nullptr; }
-    tuple2<bytes *, bytes *> *partition(bytes *sep) { return nullptr; }
-    list<bytes *> *splitlines(__ss_int keepends = 0) { return nullptr; }
+    // Print functions
+    void print(str* s);
+    template<class... Args> void print(Args... args) {}
+    
+    // Core functions used across modules 
+    inline __ss_bool __mbool(bool b) { return b; } 
+    inline __ss_bool ___bool(__ss_bool b) { return b; } 
+    template<typename T> bool __eq(T a, T b) { return a == b; } 
+    template<typename T> bool __ne(T a, T b) { return a != b; }
 
-    // C string operations
-    char *c_str() const { return nullptr; }
-    __ss_int __fixstart(size_t a, __ss_int b) { return 0; }
-    __ss_int __checkneg(__ss_int i) { return 0; }
+    // Basic class definitions 
+    class pyobj { 
+    public: 
+        void* __class__; 
+        virtual ~pyobj() {} 
+    };
 
-    // Case operations
-    bytes *upper() { return nullptr; }
-    bytes *lower() { return nullptr; }
-    bytes *title() { return nullptr; }
-    bytes *capitalize() { return nullptr; }
+    class str : public pyobj { 
+    public: 
+        char* unit;  // Changed from string to char* to avoid ambiguity 
+        str(const char* s) : unit(const_cast<char*>(s)) {} 
+        virtual ~str() {} 
+    };
 
-    // Type checking
-    __ss_bool istitle() { return false; }
-    __ss_bool isspace() { return false; }
-    __ss_bool isalpha() { return false; }
-    __ss_bool isdigit() { return false; }
-    __ss_bool islower() { return false; }
-    __ss_bool isupper() { return false; }
-    __ss_bool isalnum() { return false; }
-    __ss_bool __ss_isascii() { return false; }
+    class class_ : public pyobj { 
+    public: 
+        class_(const char* name) {} 
+        virtual ~class_() {} 
+    };
 
-    // String checks
-    __ss_bool startswith(bytes *s, __ss_int start=0) { return false; }
-    __ss_bool startswith(bytes *s, __ss_int start, __ss_int end) { return false; }
-    __ss_bool endswith(bytes *s, __ss_int start=0) { return false; }
-    __ss_bool endswith(bytes *s, __ss_int start, __ss_int end) { return false; }
+    // Full tuple2 implementation since it's needed everywhere 
+    template<class T1, class T2> 
+    class tuple2 : public pyobj { 
+    public: 
+        T1 first; 
+        T2 second; 
+        int size;
 
-    // Search operations
-    __ss_int find(bytes *s, __ss_int a=0) { return 0; }
-    __ss_int find(bytes *s, __ss_int a, __ss_int b) { return 0; }
-    __ss_int find(__ss_int i, __ss_int a=0) { return 0; }
-    __ss_int find(__ss_int i, __ss_int a, __ss_int b) { return 0; }
+        tuple2() : size(0), first(), second() { 
+            __class__ = NULL; 
+        }
 
-    __ss_int rfind(bytes *s, __ss_int a=0) { return 0; }
-    __ss_int rfind(bytes *s, __ss_int a, __ss_int b) { return 0; }
-    __ss_int rfind(__ss_int i, __ss_int a=0) { return 0; }
-    __ss_int rfind(__ss_int i, __ss_int a, __ss_int b) { return 0; }
+        tuple2(const T1& f, const T2& s) : size(2), first(f), second(s) { 
+            __class__ = NULL; 
+        }
 
-    __ss_int count(bytes *b, __ss_int start=0) { return 0; }
-    __ss_int count(__ss_int b, __ss_int start=0) { return 0; }
-    __ss_int count(bytes *b, __ss_int start, __ss_int end) { return 0; }
-    __ss_int count(__ss_int b, __ss_int start, __ss_int end) { return 0; }
+        tuple2(int s, const T1& f, const T2& s2) : size(s), first(f), second(s2) { 
+            __class__ = NULL; 
+        }
 
-    // Index operations
-    __ss_int index(bytes *s, __ss_int a=0) { return 0; }
-    __ss_int index(bytes *s, __ss_int a, __ss_int b) { return 0; }
-    __ss_int index(__ss_int i, __ss_int a=0) { return 0; }
-    __ss_int index(__ss_int i, __ss_int a, __ss_int b) { return 0; }
+        virtual ~tuple2() {} 
+    };
 
-    __ss_int rindex(bytes *s, __ss_int a=0) { return 0; }
-    __ss_int rindex(bytes *s, __ss_int a, __ss_int b) { return 0; }
-    __ss_int rindex(__ss_int i, __ss_int a=0) { return 0; }
-    __ss_int rindex(__ss_int i, __ss_int a, __ss_int b) { return 0; }
+    // Initialization functions 
+    void __init() {} 
+    typedef void (*start_type)(); 
+    void __start(start_type func) {} 
+}
 
-    // Formatting operations
-    bytes *expandtabs(__ss_int tabsize=8) { return nullptr; }
-    bytes *swapcase() { return nullptr; }
-    bytes *replace(bytes *a, bytes *b, __ss_int c=-1) { return nullptr; }
-    bytes *center(__ss_int width, bytes *fillchar=0) { return nullptr; }
-    bytes *zfill(__ss_int width) { return nullptr; }
-    bytes *ljust(__ss_int width, bytes *fillchar=0) { return nullptr; }
-    bytes *rjust(__ss_int width, bytes *fillchar=0) { return nullptr; }
-    str *hex(str *sep=0) { return nullptr; }
+// Namespace aliases for generated code 
+namespace __shedskin__ = shedskin; 
+namespace __math__ = shedskin; 
+namespace __time__ = shedskin;
+using namespace shedskin;
 
-    // Object operations
-    str *__str__() { return nullptr; }
-    str *__repr__() { return nullptr; }
-    __ss_bool __contains__(__ss_int) { return false; }
-    __ss_bool __contains__(bytes *) { return false; }
-    __ss_bool __eq__(pyobj *s) { return false; }
-    long __hash__() { return 0; }
-    __ss_bool __ctype_function(int (*cfunc)(int)) { return false; }
+// Simplified assertion macro 
+#define ASSERT(condition, message) if(!(condition)) { throw "Assertion failed"; }
 
-    // Arithmetic operations
-    bytes *__add__(bytes *b) { return nullptr; }
-    bytes *__mul__(__ss_int n) { return nullptr; }
-
-    // Iteration support
-    inline bool for_in_has_next(size_t i) { return false; }
-    inline __ss_int for_in_next(size_t &i) { return 0; }
-
-    // Bytearray operations
-    void *clear() { return nullptr; }
-    void *append(__ss_int i) { return nullptr; }
-    __ss_int pop(__ss_int i=-1) { return 0; }
-    bytes *copy() { return nullptr; }
-    void *extend(pyiter<__ss_int> *p) { return nullptr; }
-    void *reverse() { return nullptr; }
-    void *insert(__ss_int index, __ss_int item) { return nullptr; }
-    void *__setitem__(__ss_int i, __ss_int e) { return nullptr; }
-    void *__delitem__(__ss_int i) { return nullptr; }
-    void *remove(__ss_int i) { return nullptr; }
-    bytes *__iadd__(bytes *b) { return nullptr; }
-    bytes *__imul__(__ss_int n) { return nullptr; }
-    void *__setslice__(__ss_int x, __ss_int l, __ss_int u, __ss_int s, pyiter<__ss_int> *b) { return nullptr; }
-    void *__delete__(__ss_int x, __ss_int l, __ss_int u, __ss_int s) { return nullptr; }
-};
-
-// Helper functions
-template<class T> bytes *__bytes(T *t) { return nullptr; }
-bytes *__bytes(bytes *b) { return nullptr; }
-bytes *__bytes(__ss_int t) { return nullptr; }
-bytes *__bytes() { return nullptr; }
-
-template<class T> bytes *__bytearray(T *t) { return nullptr; }
-bytes *__bytearray(bytes *b) { return nullptr; }
-bytes *__bytearray(__ss_int t) { return nullptr; }
-bytes *__bytearray() { return nullptr; }
-
-} // namespace shedskin
-
-#endif // SHEDSKIN_BYTES_HPP
+#endif // BUILTIN_HPP

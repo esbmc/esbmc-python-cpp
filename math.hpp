@@ -1,6 +1,7 @@
 #ifndef SHEDSKIN_MATH_HPP
 #define SHEDSKIN_MATH_HPP
 
+
 namespace shedskin {
 
 // Basic math functions
