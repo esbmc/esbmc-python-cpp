@@ -11,20 +11,19 @@ namespace shedskin {
 class Random;
 class WichmannHill;
 
-// Constants - fixed to work with int
+// Constants
 constexpr int UPPER = 100;
 constexpr double LOG4 = 1.3862943611198906;
 constexpr double SG_MAGICCONST = 2.504077396776274;
-constexpr int BPF = 30;  // Reduced from 53 to fit in int
+constexpr int BPF = 30;  
 constexpr int MATRIX_A = 0x9908b0df;
 constexpr int M = 397;
 constexpr int LOWER = 0;
 constexpr int N = 624;
-constexpr unsigned int MAXWIDTH = 1U << BPF;  // Made unsigned to handle shift
+constexpr unsigned int MAXWIDTH = 1U << BPF;
 constexpr double NV_MAGICCONST = 1.7155277699214135;
 constexpr int MAXBITS = 32;
 
-// Simple random number generator 
 class Random {
 protected:
     unsigned long long state;
@@ -32,14 +31,53 @@ protected:
 public:
     Random() : state(1) {}
     explicit Random(__ss_int seed) : state(seed) {}
-
+    
     virtual double random() {
-        state = (state * 6364136223846793005ULL + 1442695040888963407ULL);
-        return (state >> 11) * (1.0 / 9007199254740992.0);
+        // Simple linear congruential generator
+        state = (state * 1103515245 + 12345) & 0x7fffffff;
+        return static_cast<double>(state) / 0x7fffffff;
+    }
+
+    __ss_int randrange(__ss_int stop) {
+        return randrange(0, stop, 1);
+    }
+
+    __ss_int randrange(__ss_int start, __ss_int stop) {
+        return randrange(start, stop, 1);
+    }
+
+    __ss_int randrange(__ss_int start, __ss_int stop, __ss_int step) {
+        if (step == 0) {
+            throw "zero step for randrange()";
+        }
+
+        __ss_int width = stop - start;
+        if (step == 1 && width > 0) {
+            return start + static_cast<__ss_int>(random() * width);
+        }
+
+        if (step == 1) {
+            throw "empty range for randrange()";
+        }
+
+        __ss_int n;
+        if (step > 0) {
+            n = (width + step - 1) / step;
+        } else if (step < 0) {
+            n = (width + step + 1) / step;
+        } else {
+            throw "zero step for randrange()";
+        }
+
+        if (n <= 0) {
+            throw "empty range for randrange()";
+        }
+
+        return start + (step * static_cast<__ss_int>(random() * n));
     }
 
     __ss_int randint(__ss_int a, __ss_int b) {
-        return a + (__ss_int)(random() * (b - a + 1));
+        return randrange(a, b + 1);
     }
 
     __ss_float uniform(__ss_float a, __ss_float b) {
@@ -48,7 +86,8 @@ public:
 
     __ss_int getrandbits(__ss_int k) {
         if (k <= 0) return 0;
-        return (__ss_int)(random() * (1LL << k));
+        if (k > MAXBITS) throw "k exceeds size of int";
+        return static_cast<__ss_int>(random() * (1LL << k));
     }
 };
 
@@ -83,6 +122,11 @@ Random* _inst = new Random();
 
 // Global functions that delegate to _inst
 inline double random() { return _inst->random(); }
+inline __ss_int randrange(__ss_int stop) { return _inst->randrange(stop); }
+inline __ss_int randrange(__ss_int start, __ss_int stop) { return _inst->randrange(start, stop); }
+inline __ss_int randrange(__ss_int start, __ss_int stop, __ss_int step) { 
+    return _inst->randrange(start, stop, step); 
+}
 inline __ss_int randint(__ss_int a, __ss_int b) { return _inst->randint(a, b); }
 inline __ss_int getrandbits(__ss_int k) { return _inst->getrandbits(k); }
 
