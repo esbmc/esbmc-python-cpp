@@ -1,10 +1,7 @@
 #ifndef SHEDSKIN_MATH_HPP
 #define SHEDSKIN_MATH_HPP
 
-
 namespace shedskin {
-
-// Basic math functions
 
 // Mathematical constants
 const __ss_float M_PI = 3.14159265358979323846;
@@ -27,14 +24,12 @@ inline __ss_float ceil(__ss_float x) {
 }
 
 inline __ss_float pow(__ss_float x, __ss_float y) {
-    // Basic implementation for common cases
     if (y == 0) return 1;
     if (y == 1) return x;
     if (y == 2) return x * x;
     if (y == 3) return x * x * x;
     if (y == -1) return 1/x;
     
-    // For other cases, use a simplified approximation
     __ss_bool negative = y < 0;
     y = negative ? -y : y;
     __ss_float result = 1;
@@ -43,74 +38,82 @@ inline __ss_float pow(__ss_float x, __ss_float y) {
         y -= 1;
     }
     if (y > 0) {
-        // Rough approximation for fractional powers
         result *= (1 + (x - 1) * y);
     }
     return negative ? 1/result : result;
 }
 
-// Power operations
-inline __ss_float __power(__ss_int a, __ss_float b) { 
-    return pow((__ss_float)a, b);
-}
+// Power operations from original shedskin
+inline __ss_float __power(__ss_int a, __ss_float b) { return pow(a,b); }
 
 inline __ss_float __power(__ss_float a, __ss_int b) { 
-    if(b == 2) return a * a;
-    else if(b == 3) return a * a * a;
-    else if(b == 4) return a * a * a * a;
-    return pow(a, (__ss_float)b);
+    if(b==2) return a*a;
+    else if(b==3) return a*a*a;
+    else return pow(a,b); 
 }
 
 template<class A> A __power(A a, A b);
-
-template<> inline __ss_float __power(__ss_float a, __ss_float b) { 
-    return pow(a, b);
-}
+template<> inline __ss_float __power(__ss_float a, __ss_float b) { return pow(a,b); }
 
 template<> inline __ss_int __power(__ss_int a, __ss_int b) {
     switch(b) {
-        case 0: return 1;
-        case 1: return a;
-        case 2: return a * a;
-        case 3: return a * a * a;
-        case 4: return a * a * a * a;
-        case 5: return a * a * a * a * a;
-        case 6: return a * a * a * a * a * a;
-        case 7: return a * a * a * a * a * a * a;
-        case 8: return a * a * a * a * a * a * a * a;
-        case 9: return a * a * a * a * a * a * a * a * a;
-        case 10: return a * a * a * a * a * a * a * a * a * a;
-        default: {
-            __ss_int res = 1;
-            __ss_int tmp = a;
-            __ss_int exp = b;
-
-            while(exp > 0) {
-                if (exp % 2) {
-                    res = (res * tmp);
-                }
-                tmp = (tmp * tmp);
-                exp = (exp / 2);
-            }
-            return res;
-        }
+        case 2: return a*a;
+        case 3: return a*a*a;
+        case 4: return a*a*a*a;
+        case 5: return a*a*a*a*a;
+        case 6: return a*a*a*a*a*a;
+        case 7: return a*a*a*a*a*a*a;
+        case 8: return a*a*a*a*a*a*a*a;
+        case 9: return a*a*a*a*a*a*a*a*a;
+        case 10: return a*a*a*a*a*a*a*a*a*a;
     }
-}
+    __ss_int res, tmp;
 
-// Modular exponentiation
-inline __ss_int __power(__ss_int a, __ss_int b, __ss_int m) {
-    if (m == 1) return 0;
-    __ss_int res = 1;
-    a = a % m;
-    
-    while(b > 0) {
-        if (b % 2) {
-            res = (res * a) % m;
+    res = 1;
+    tmp = a;
+
+    while((b>0)) {
+        if ((b%2)) {
+            res = (res*tmp);
         }
-        a = (a * a) % m;
-        b = b / 2;
+        tmp = (tmp*tmp);
+        b = (b/2);
     }
     return res;
+}
+
+#ifdef __SS_LONG
+inline __ss_int __power(__ss_int a, __ss_int b, __ss_int c) {
+    __ss_int res, tmp;
+
+    res = 1;
+    tmp = a;
+
+    while((b>0)) {
+        if ((b%2)) {
+            res = ((res*tmp)%c);
+        }
+        tmp = ((tmp*tmp)%c);
+        b = (b/2);
+    }
+    return res;
+}
+#endif
+
+inline int __power(int a, int b, int c) {
+    long long res, tmp;
+
+    res = 1;
+    tmp = a;
+
+    while((b>0)) {
+        if ((b%2)) {
+            res = ((res*tmp)%c);
+        }
+        tmp = ((tmp*tmp)%c);
+        b = (b/2);
+    }
+    return (int)res;
 }
 
 // Division operations
@@ -182,7 +185,7 @@ template<> inline __ss_float __mods(__ss_float a, __ss_int b) {
     return __mods(a, (__ss_float)b); 
 }
 
-// Divmod operation using common tuple2
+// Divmod operation
 template<class A> tuple2<A, A>* divmod(A a, A b) {
     return new tuple2<A, A>(2, shedskin::__floordiv(a,b), shedskin::__mods(a,b));
 }
