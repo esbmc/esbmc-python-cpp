@@ -1,5 +1,6 @@
 #ifndef SS_BUILTIN_HPP
 #define SS_BUILTIN_HPP
+
 #include <cstddef>
 #include <string.h>
 #include <iostream>
@@ -22,8 +23,10 @@ static const bool False = false;
 namespace shedskin {
     class str;
     class class_;
+    template<class T> class __iter;
+    template<class T> class list;
 
-    // Forward declare char_cache array - definition will be in cpp
+    // Forward declare char_cache array
     extern str* __char_cache[256];
     
     class pyobj {
@@ -68,10 +71,6 @@ namespace shedskin {
         str* __getitem__(__ss_int i) const;
     };
 
-    __ss_int len(str* s) {
-        return s->__len__();
-    }
-
     class class_ {
     public:
         str *__name__;
@@ -81,7 +80,99 @@ namespace shedskin {
         ~class_() { delete __name__; }
     };
 
-    __ss_bool isinstance(pyobj* obj, class_* cls) {
+    // Basic operations
+    bool ___bool(bool b) { return b; }
+    bool ___bool(__ss_int i) { return i != 0; }
+    bool ___bool(__ss_float f) { return f != 0.0; }
+    bool ___bool(str *s) { return s && s->__len__() > 0; }
+    
+    template<typename T>
+    bool ___bool(T* ptr) { return ptr != nullptr; }
+
+    // Iterator support functions
+    template<typename T>
+    bool all(T* iter) {
+        if (!iter) return false;
+        bool result = true;
+        while (!iter->__stop_iteration) {
+            auto val = iter->__get_next();
+            if (!iter->__stop_iteration && !___bool(val)) {
+                result = false;
+                break;
+            }
+        }
+        return result;
+    }
+
+    template<typename T>
+    bool any(T* iter) {
+        if (!iter) return false;
+        while (!iter->__stop_iteration) {
+            auto val = iter->__get_next();
+            if (!iter->__stop_iteration && ___bool(val)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Length functions
+    __ss_int len(str* s) { return s ? s->__len__() : 0; }
+    
+    template<typename T>
+    __ss_int len(list<T>* l) { return l ? l->__len__() : 0; }
+
+    // Comparison functions
+    bool __eq(pyobj* a, pyobj* b) {
+        if (a == b) return true;
+        if (!a || !b) return false;
+        return a->equals(b);
+    }
+
+    bool __eq(char a, const str* b) {
+        if (!b || !b->data) return false;
+        return a == b->data[0];
+    }
+
+    bool __eq(const str* a, char b) { return __eq(b, a); }
+    bool __eq(char a, char b) { return a == b; }
+    bool __ne(pyobj* a, pyobj* b) { return !__eq(a, b); }
+
+    // Math operations
+    __ss_int power(__ss_int base, __ss_int exp) {
+        __ss_int result = 1;
+        while (exp > 0) {
+            if (exp & 1) result *= base;
+            base *= base;
+            exp >>= 1;
+        }
+        return result;
+    }
+
+    __ss_int __power(__ss_int base, __ss_int exp) { return power(base, exp); }
+    
+    __ss_int __floordiv(__ss_int a, __ss_int b) {
+        if (b == 0) throw std::runtime_error("Division by zero");
+        return a / b;
+    }
+    
+    __ss_int __mods(__ss_int a, __ss_int b) {
+        if (b == 0) throw std::runtime_error("Modulo by zero");
+        return a % b;
+    }
+    
+    __ss_int __divs(__ss_int a, __ss_int b) {
+        if (b == 0) throw std::runtime_error("Division by zero");
+        return a / b;
+    }
+
+    // Type checking
+    bool isinstance_bool(bool) { return true; }
+    bool isinstance_int(__ss_int) { return true; }
+    bool isinstance_float(__ss_float) { return true; }
+    bool isinstance_str(str*) { return true; }
+    
+    bool isinstance(pyobj* obj, class_* cls) {
         if (!obj || !cls) return false;
         class_* curr = obj->__class__;
         while (curr) {
@@ -91,114 +182,19 @@ namespace shedskin {
         return false;
     }
 
-    bool isinstance_bool(bool val) { return true; }
-    bool isinstance_int(__ss_int val) { return true; }
-    bool isinstance_float(__ss_float val) { return true; }
-    bool isinstance_str(str *s) { return true; }
-
-    inline void print() {
-       // std::cout << std::endl;
-    }
-
-    template<typename T>
-    void print(const T& value) {
-       // std::cout << value << std::endl;
-    }
-
-    template<typename T1, typename T2>
-    void print(const T1& value1, const T2& value2) {
-       // std::cout << value1 << value2 << std::endl;
-    }
-
-    template<typename... Args>
-    void print(const Args&... args) {
-        //(std::cout << ... << args) << std::endl;
-    }
-
-    inline __ss_int power(__ss_int base, __ss_int exp) {
-        __ss_int result = 1;
-        while (exp > 0) {
-            if (exp & 1)
-                result *= base;
-            base *= base;
-            exp >>= 1;
-        }
-        return result;
-    }
-    
-    inline __ss_int __power(__ss_int base, __ss_int exp) {
-        return power(base, exp);
-    }
-
-    inline bool ___bool(bool b) {
-        return b;
-    }
-
-    inline bool __eq(pyobj* a, pyobj* b) {
-        if (a == b) return true;
-        if (!a || !b) return false;
-        return a->equals(b);
-    }
-
-    inline bool __eq(char a, const str* b) {
-        if (!b || !b->data) return false;
-        return a == b->data[0];
-    }
-
-    inline bool __eq(const str* a, char b) {
-        return __eq(b, a);
-    }
-
-    bool __eq(char a, char b) {
-        return a == b;
-    }
-
-    inline bool __ne(pyobj* a, pyobj* b) {
-        return !__eq(a, b);
-    }
-
+    // Program initialization
     void __init() {}
+    void __start(void (*initfunc)()) { initfunc(); }
 
-    int __int(int value) {
-        return value;
-    }
-
-    int __floordiv(int a, int b) {
-        if (b == 0) {
-            throw std::runtime_error("Division by zero");
-        }
-        return a / b;
-    }
-    
-    inline __ss_int __mods(__ss_int a, __ss_int b) {
-        if (b == 0) {
-            throw std::runtime_error("Modulo by zero is undefined");
-        }
-        return a % b;
-    }
-    
-    // Defining __divs to manage whole divisions
-    inline __ss_int __divs(__ss_int a, __ss_int b) {
-        if (b == 0) {
-            std::cerr << "Error: Division by zero detected" << std::endl;
-            throw std::runtime_error("Division by zero detected");
-        }
-        return a / b; // Renvoie le résultat de la division entière
-    }
-
-    void __start(void (*initfunc)()) {
-        initfunc();
-    }
 } // namespace shedskin
 
 namespace ss = shedskin;
 
+// Required includes - order matters
 #include "list.hpp"
 #include "dict.hpp"
 #include "set.hpp"
 #include "string.hpp"
 #include "tuple.hpp"
-#include "bytes.hpp"
-#include "math.hpp"
 
 #endif

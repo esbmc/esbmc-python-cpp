@@ -5,10 +5,13 @@
 #include <cstring>
 #include <cctype>
 #include <cstdarg>
+#include <stdexcept>
 
 namespace shedskin {
 
-// String manipulation methods implementation
+// Note: str class is already defined in builtin.hpp
+// Implement methods for the existing str class
+
 str* str::strip() const {
     if (!data) return new str();
     const char* start = data;
@@ -18,38 +21,38 @@ str* str::strip() const {
     while (end > start && isspace(*end)) end--;
     
     size_t len = end - start + 1;
-    char* newStr = new char[len + 1];
-    strncpy(newStr, start, len);
-    newStr[len] = '\0';
+    char* result_str = new char[len + 1];
+    strncpy(result_str, start, len);
+    result_str[len] = '\0';
     
-    str* result = new str(newStr);
-    delete[] newStr;
+    str* result = new str(result_str);
+    delete[] result_str;
     return result;
 }
 
 str* str::upper() const {
     if (!data) return new str();
-    char* newStr = strdup(data);
-    char* p = newStr;
+    char* result_str = strdup(data);
+    char* p = result_str;
     while (*p) {
         *p = toupper(*p);
         p++;
     }
-    str* result = new str(newStr);
-    free(newStr);
+    str* result = new str(result_str);
+    free(result_str);
     return result;
 }
 
 str* str::lower() const {
     if (!data) return new str();
-    char* newStr = strdup(data);
-    char* p = newStr;
+    char* result_str = strdup(data);
+    char* p = result_str;
     while (*p) {
         *p = tolower(*p);
         p++;
     }
-    str* result = new str(newStr);
-    free(newStr);
+    str* result = new str(result_str);
+    free(result_str);
     return result;
 }
 
@@ -57,7 +60,6 @@ str* str::replace(const str* old_str, const str* new_str) const {
     if (!data || !old_str || !old_str->data || !new_str || !new_str->data) 
         return new str(data);
     
-    // Calculate required buffer size
     const char* pos = data;
     size_t count = 0;
     size_t old_len = strlen(old_str->data);
@@ -72,9 +74,9 @@ str* str::replace(const str* old_str, const str* new_str) const {
     size_t new_len = strlen(new_str->data);
     size_t final_size = strlen(data) + count * (new_len - old_len) + 1;
     
-    char* result = new char[final_size];
+    char* result_str = new char[final_size];
     const char* current = data;
-    char* dest = result;
+    char* dest = result_str;
     
     while ((pos = strstr(current, old_str->data))) {
         size_t keep_len = pos - current;
@@ -86,13 +88,41 @@ str* str::replace(const str* old_str, const str* new_str) const {
     }
     
     strcpy(dest, current);
-    str* str_result = new str(result);
-    delete[] result;
-    return str_result;
+    str* result = new str(result_str);
+    delete[] result_str;
+    return result;
 }
 
 str* str::format() const {
     return new str(data);
+}
+
+str* str::__add__(const str* other) const {
+    if (!this->data && !other->data) return new str();
+    if (!this->data) return new str(other->data);
+    if (!other->data) return new str(this->data);
+    
+    size_t new_len = strlen(this->data) + strlen(other->data) + 1;
+    char* result_str = new char[new_len];
+    strcpy(result_str, this->data);
+    strcat(result_str, other->data);
+    str* result = new str(result_str);
+    delete[] result_str;
+    return result;
+}
+
+str* str::__getitem__(__ss_int i) const {
+    if (!data) {
+        throw std::out_of_range("Index out of range: string data is null");
+    }
+    if (i < 0) i += __len__();
+    if (i < 0 || i >= __len__()) {
+        throw std::out_of_range("Index out of range: invalid index");
+    }
+    
+    // Create a single character string
+    char c[2] = {data[i], '\0'};
+    return new str(c);
 }
 
 // String conversion functions
@@ -120,68 +150,62 @@ str* __str(bool b) {
     return new str(b ? "True" : "False");
 }
 
-// String concatenation
 str* __add_strs(int count, ...) {
     va_list args;
     va_start(args, count);
     
-    // Calculate total length needed
-    size_t total_len = 1;  // for null terminator
+    size_t total_len = 1;
     va_list args_copy;
     va_copy(args_copy, args);
     for (int i = 0; i < count; i++) {
         const str* s = va_arg(args_copy, const str*);
-        if (s && s->data) {
-            total_len += strlen(s->data);
+        if (s && s->c_str()) {
+            total_len += strlen(s->c_str());
         }
     }
     va_end(args_copy);
     
-    // Concatenate strings
-    char* result = new char[total_len];
-    result[0] = '\0';
+    char* result_str = new char[total_len];
+    result_str[0] = '\0';
     
-    char* dest = result;
+    char* dest = result_str;
     for (int i = 0; i < count; i++) {
         const str* s = va_arg(args, const str*);
-        if (s && s->data) {
-            strcpy(dest, s->data);
-            dest += strlen(s->data);
+        if (s && s->c_str()) {
+            strcpy(dest, s->c_str());
+            dest += strlen(s->c_str());
         }
     }
     va_end(args);
     
-    str* str_result = new str(result);
-    delete[] result;
-    return str_result;
+    str* result = new str(result_str);
+    delete[] result_str;
+    return result;
 }
 
-// String formatting
 str* __mod6(const str* format_str, int count, ...) {
-    if (!format_str || !format_str->data) return new str();
+    if (!format_str || !format_str->c_str()) return new str();
     
     va_list args;
     va_start(args, count);
     
-    const char* fmt = format_str->data;
+    const char* fmt = format_str->c_str();
     size_t total_len = strlen(fmt) + 1;
     
-    // First pass: calculate required size
     va_list args_copy;
     va_copy(args_copy, args);
     const char* p = fmt;
     while ((p = strstr(p, "%s"))) {
         const str* arg = va_arg(args_copy, const str*);
-        if (arg && arg->data) {
-            total_len += strlen(arg->data) - 2;  // -2 for "%s"
+        if (arg && arg->c_str()) {
+            total_len += strlen(arg->c_str()) - 2;
         }
         p += 2;
     }
     va_end(args_copy);
     
-    // Second pass: format string
-    char* result = new char[total_len];
-    char* dest = result;
+    char* result_str = new char[total_len];
+    char* dest = result_str;
     p = fmt;
     const char* last = p;
     
@@ -191,9 +215,9 @@ str* __mod6(const str* format_str, int count, ...) {
         dest += chunk;
         
         const str* arg = va_arg(args, const str*);
-        if (arg && arg->data) {
-            strcpy(dest, arg->data);
-            dest += strlen(arg->data);
+        if (arg && arg->c_str()) {
+            strcpy(dest, arg->c_str());
+            dest += strlen(arg->c_str());
         }
         p += 2;
         last = p;
@@ -201,39 +225,9 @@ str* __mod6(const str* format_str, int count, ...) {
     strcpy(dest, last);
     va_end(args);
     
-    str* str_result = new str(result);
-    delete[] result;
-    return str_result;
-}
-
-str* str::__add__(const str* other) const {
-    if (!this->data || !other->data) {
-        return new str();
-    }
-    size_t new_len = strlen(this->data) + strlen(other->data) + 1;
-    char* result = new char[new_len];
-    strcpy(result, this->data);
-    strcat(result, other->data);
-    str* concatenated = new str(result);
-    delete[] result;
-    return concatenated;
-}
-
-str* str::__getitem__(__ss_int i) const {
-    if (!data) {
-        throw std::out_of_range("Index out of range: string data is null");
-    }
-    if (i < 0) i += __len__();  // Managing negative indices
-    if (i < 0 || i >= __len__()) {
-        throw std::out_of_range("Index out of range: invalid index");
-    }
-    unsigned char char_index = static_cast<unsigned char>(data[i]);  // Retrieve character
-    if (!__char_cache[char_index]) {
-        // If the cache is not initialized for this character, initialize it.
-        char c[2] = {data[i], '\0'};  // Convert character to string
-        __char_cache[char_index] = new str(c);
-    }
-    return __char_cache[char_index];  // Return character from cache
+    str* result = new str(result_str);
+    delete[] result_str;
+    return result;
 }
 
 } // namespace shedskin
