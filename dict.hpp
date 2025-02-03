@@ -22,7 +22,7 @@ class __dictitervalues;
 template<class K, class V>
 class __dictiteritems;
 
-template<class K, class V>
+template<class K, class V> 
 class dict : public pyobj {
 private:
     dict_entry<K,V> *entries;
@@ -74,7 +74,6 @@ public:
         if (!entries) {
             throw new ValueError(new str("KeyError"));
         }
-
         if (__eq(entries->key, key)) {
             dict_entry<K,V> *temp = entries;
             entries = entries->next;
@@ -82,7 +81,6 @@ public:
             count--;
             return NULL;
         }
-
         dict_entry<K,V> *current = entries;
         while (current->next) {
             if (__eq(current->next->key, key)) {
@@ -136,18 +134,21 @@ public:
     }
 
     __dictiterkeys<K,V> *keys() {
-        return new __dictiterkeys<K,V>(entries);
+        return new __dictiterkeys<K,V>(this);
     }
 
     __dictitervalues<K,V> *values() {
-        return new __dictitervalues<K,V>(entries);
+        return new __dictitervalues<K,V>(this);
     }
 
     __dictiteritems<K,V> *items() {
-        return new __dictiteritems<K,V>(entries);
+        return new __dictiteritems<K,V>(this);
     }
 
     __ss_bool __eq__(pyobj *p) {
+        if (p == NULL) {
+            return False;
+        }
         dict<K,V> *other = (dict<K,V> *)p;
         if (other->__len__() != this->__len__())
             return False;
@@ -161,6 +162,8 @@ public:
         }
         return True;
     }
+
+    __iter<K> *__iter__() { return new __dictiterkeys<K,V>(this); }
 
 private:
     dict_entry<K,V> *find_entry(K key) {
@@ -178,10 +181,10 @@ private:
 // Iterator implementations
 template<class K, class V>
 class __dictiterkeys : public __iter<K> {
-private:
+    dict<K,V> *dict_ptr;
     dict_entry<K,V> *current;
 public:
-    __dictiterkeys(dict_entry<K,V> *first) : current(first) {}
+    __dictiterkeys(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
     
     K __next__() override {
         if (!current) 
@@ -190,14 +193,16 @@ public:
         current = current->next;
         return key;
     }
+
+    str *__str__() { return new str("dict_keys"); }
 };
 
 template<class K, class V>
 class __dictitervalues : public __iter<V> {
-private:
+    dict<K,V> *dict_ptr;
     dict_entry<K,V> *current;
 public:
-    __dictitervalues(dict_entry<K,V> *first) : current(first) {}
+    __dictitervalues(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
     
     V __next__() override {
         if (!current) 
@@ -206,14 +211,16 @@ public:
         current = current->next;
         return value;
     }
+
+    str *__str__() { return new str("dict_values"); }
 };
 
 template<class K, class V>
 class __dictiteritems : public __iter<tuple2<K,V>*> {
-private:
+    dict<K,V> *dict_ptr;
     dict_entry<K,V> *current;
 public:
-    __dictiteritems(dict_entry<K,V> *first) : current(first) {}
+    __dictiteritems(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
     
     tuple2<K,V> *__next__() override {
         if (!current) 
@@ -222,8 +229,10 @@ public:
         current = current->next;
         return result;
     }
+
+    str *__str__() { return new str("dict_items"); }
 };
 
 } // namespace shedskin
 
-#endif // SS_DICT_HPP
+#endif
