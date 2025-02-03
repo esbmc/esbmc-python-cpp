@@ -1,152 +1,215 @@
-#ifndef __DICT_HPP
-#define __DICT_HPP
+#ifndef SS_DICT_HPP
+#define SS_DICT_HPP
 
-// Helper macros for generating repeated patterns
-#define INIT_USED_4(start) \
-    used[start] = used[start+1] = used[start+2] = used[start+3] = false;
-
-#define CHECK_SLOT_4(start) \
-    if(used[start] && keys[start] == key) return values[start]; \
-    if(used[start+1] && keys[start+1] == key) return values[start+1]; \
-    if(used[start+2] && keys[start+2] == key) return values[start+2]; \
-    if(used[start+3] && keys[start+3] == key) return values[start+3];
-
-#define FIND_EMPTY_4(start) \
-    if(!used[start]) { keys[start] = key; used[start] = true; size_++; return values[start]; } \
-    if(!used[start+1]) { keys[start+1] = key; used[start+1] = true; size_++; return values[start+1]; } \
-    if(!used[start+2]) { keys[start+2] = key; used[start+2] = true; size_++; return values[start+2]; } \
-    if(!used[start+3]) { keys[start+3] = key; used[start+3] = true; size_++; return values[start+3]; }
-
-#define CHECK_SET_4(start) \
-    if(used[start] && keys[start] == key) { values[start] = value; return; } \
-    if(used[start+1] && keys[start+1] == key) { values[start+1] = value; return; } \
-    if(used[start+2] && keys[start+2] == key) { values[start+2] = value; return; } \
-    if(used[start+3] && keys[start+3] == key) { values[start+3] = value; return; }
-
-#define SET_EMPTY_4(start) \
-    if(!used[start]) { keys[start] = key; values[start] = value; used[start] = true; size_++; return; } \
-    if(!used[start+1]) { keys[start+1] = key; values[start+1] = value; used[start+1] = true; size_++; return; } \
-    if(!used[start+2]) { keys[start+2] = key; values[start+2] = value; used[start+2] = true; size_++; return; } \
-    if(!used[start+3]) { keys[start+3] = key; values[start+3] = value; used[start+3] = true; size_++; return; }
-
-#define DEL_SLOT_4(start) \
-    if(used[start] && keys[start] == key) { used[start] = false; size_--; } \
-    if(used[start+1] && keys[start+1] == key) { used[start+1] = false; size_--; } \
-    if(used[start+2] && keys[start+2] == key) { used[start+2] = false; size_--; } \
-    if(used[start+3] && keys[start+3] == key) { used[start+3] = false; size_--; }
-
-#define CONTAINS_SLOT_4(start) \
-    ((used[start] && keys[start] == key) || \
-     (used[start+1] && keys[start+1] == key) || \
-     (used[start+2] && keys[start+2] == key) || \
-     (used[start+3] && keys[start+3] == key))
+#include "builtin.hpp"
 
 namespace shedskin {
 
-template<class T1, class T2>
-class tuple2 {
-public:
-    T1 first;
-    T2 second;
-    tuple2(__ss_int size, T1 t1, T2 t2) : first(t1), second(t2) {}
-
-T1 __getfirst__() const { return first; }
-T2 __getsecond__() const { return second; }
+// Dict implementation is kept in the same namespace as the forward declarations
+template<class K, class V> 
+struct dict_entry {
+    K key;
+    V value;
+    dict_entry *next;
+    dict_entry(K k, V v) : key(k), value(v), next(nullptr) {}
 };
 
 template<class K, class V>
-class dict {
+class dict : public pyobj {
 private:
-    static const __ss_int SIZE = 32;  // Increased size, multiple of 4
-    K keys[SIZE];
-    V values[SIZE];
-    bool used[SIZE];
-    __ss_int size_;
+    dict_entry<K,V> *entries;
+    size_t count;
 
 public:
-    dict() : size_(0) {
-        // Initialize in blocks of 4
-        INIT_USED_4(0)  INIT_USED_4(4)  INIT_USED_4(8)  INIT_USED_4(12)
-        INIT_USED_4(16) INIT_USED_4(20) INIT_USED_4(24) INIT_USED_4(28)
+    dict() : entries(nullptr), count(0) {
+        __class__ = NULL;
     }
-    
-    dict(__ss_int count, tuple2<K,V>* p1) : dict() {
-        if(p1) { 
-            keys[0] = p1->first; 
-            values[0] = p1->second;
-            used[0] = true;
-            size_ = 1;
+
+    // Constructor for initializing with tuples
+    template<class... Args>
+    dict(int size, Args... args) : entries(nullptr), count(0) {
+        __class__ = NULL;
+        (insert_tuple(args), ...);
+    }
+
+    template<class T>
+    void insert_tuple(tuple2<K,V>* t) {
+        __setitem__(t->first, t->second);
+    }
+
+    ~dict() {
+        clear();
+    }
+
+    void *__setitem__(K key, V value) {
+        dict_entry<K,V> *entry = find_entry(key);
+        if (entry) {
+            entry->value = value;
+        } else {
+            dict_entry<K,V> *new_entry = new dict_entry<K,V>(key, value);
+            new_entry->next = entries;
+            entries = new_entry;
+            count++;
         }
+        return NULL;
     }
-    
-    dict(__ss_int count, tuple2<K,V>* p1, tuple2<K,V>* p2) : dict(count, p1) {
-        if(p2 && size_ < SIZE) {
-            keys[1] = p2->first;
-            values[1] = p2->second;
-            used[1] = true;
-            size_++;
+
+    V __getitem__(K key) {
+        dict_entry<K,V> *entry = find_entry(key);
+        if (!entry) {
+            throw "KeyError";
         }
+        return entry->value;
     }
-    
-    dict(__ss_int count, tuple2<K,V>* p1, tuple2<K,V>* p2, tuple2<K,V>* p3) 
-        : dict(count, p1, p2) {
-        if(p3 && size_ < SIZE) {
-            keys[2] = p3->first;
-            values[2] = p3->second;
-            used[2] = true;
-            size_++;
+
+    void *__delitem__(K key) {
+        if (!entries) {
+            throw "KeyError";
         }
-    }
 
-    V& __getitem__(const K& key) {
-        // Check existing slots in blocks of 4
-        CHECK_SLOT_4(0)  CHECK_SLOT_4(4)  CHECK_SLOT_4(8)  CHECK_SLOT_4(12)
-        CHECK_SLOT_4(16) CHECK_SLOT_4(20) CHECK_SLOT_4(24) CHECK_SLOT_4(28)
-        
-        // Find empty slots in blocks of 4
-        FIND_EMPTY_4(0)  FIND_EMPTY_4(4)  FIND_EMPTY_4(8)  FIND_EMPTY_4(12)
-        FIND_EMPTY_4(16) FIND_EMPTY_4(20) FIND_EMPTY_4(24) FIND_EMPTY_4(28)
-        
-        return values[0];
-    }
+        if (__eq(entries->key, key)) {
+            dict_entry<K,V> *temp = entries;
+            entries = entries->next;
+            delete temp;
+            count--;
+            return NULL;
+        }
 
-    void __setitem__(const K& key, const V& value) {
-        // Check existing slots in blocks of 4
-        CHECK_SET_4(0)  CHECK_SET_4(4)  CHECK_SET_4(8)  CHECK_SET_4(12)
-        CHECK_SET_4(16) CHECK_SET_4(20) CHECK_SET_4(24) CHECK_SET_4(28)
-        
-        // Find empty slots in blocks of 4
-        SET_EMPTY_4(0)  SET_EMPTY_4(4)  SET_EMPTY_4(8)  SET_EMPTY_4(12)
-        SET_EMPTY_4(16) SET_EMPTY_4(20) SET_EMPTY_4(24) SET_EMPTY_4(28)
-    }
-
-    void __delitem__(const K& key) {
-        DEL_SLOT_4(0)  DEL_SLOT_4(4)  DEL_SLOT_4(8)  DEL_SLOT_4(12)
-        DEL_SLOT_4(16) DEL_SLOT_4(20) DEL_SLOT_4(24) DEL_SLOT_4(28)
-    }
-
-    bool __contains__(const K& key) const {
-        return CONTAINS_SLOT_4(0) || CONTAINS_SLOT_4(4) || CONTAINS_SLOT_4(8) || 
-               CONTAINS_SLOT_4(12) || CONTAINS_SLOT_4(16) || CONTAINS_SLOT_4(20) || 
-               CONTAINS_SLOT_4(24) || CONTAINS_SLOT_4(28);
-    }
-
-    V pop(const K& key, const V& default_val) {
-        for(__ss_int i = 0; i < SIZE; i++) {
-            if(used[i] && keys[i] == key) {
-                V val = values[i];
-                used[i] = false;
-                size_--;
-                return val;
+        dict_entry<K,V> *current = entries;
+        while (current->next) {
+            if (__eq(current->next->key, key)) {
+                dict_entry<K,V> *temp = current->next;
+                current->next = current->next->next;
+                delete temp;
+                count--;
+                return NULL;
             }
+            current = current->next;
         }
-        return default_val;
+        throw "KeyError";
     }
 
     __ss_int __len__() const {
-        return size_;
+        return count;
+    }
+
+    __ss_bool __contains__(K key) {
+        return find_entry(key) != nullptr;
+    }
+
+    void *clear() {
+        while (entries) {
+            dict_entry<K,V> *temp = entries;
+            entries = entries->next;
+            delete temp;
+        }
+        count = 0;
+        return NULL;
+    }
+
+    dict<K,V> *copy() {
+        dict<K,V> *new_dict = new dict<K,V>();
+        dict_entry<K,V> *current = entries;
+        while (current) {
+            new_dict->__setitem__(current->key, current->value);
+            current = current->next;
+        }
+        return new_dict;
+    }
+
+    V get(K key) {
+        dict_entry<K,V> *entry = find_entry(key);
+        return entry ? entry->value : V();
+    }
+
+    V get(K key, V default_value) {
+        dict_entry<K,V> *entry = find_entry(key);
+        return entry ? entry->value : default_value;
+    }
+
+    __dictiterkeys<K,V> *keys() {
+        return new __dictiterkeys<K,V>(this);
+    }
+
+    __dictitervalues<K,V> *values() {
+        return new __dictitervalues<K,V>(this);
+    }
+
+    __dictiteritems<K,V> *items() {
+        return new __dictiteritems<K,V>(this);
+    }
+
+private:
+    dict_entry<K,V> *find_entry(K key) {
+        dict_entry<K,V> *current = entries;
+        while (current) {
+            if (__eq(current->key, key)) {
+                return current;
+            }
+            current = current->next;
+        }
+        return nullptr;
+    }
+};
+
+// Iterator implementations
+template<class K, class V>
+class __dictiterkeys : public __iter<K> {
+protected:
+    dict<K,V> *dict_ptr;
+    dict_entry<K,V> *current;
+
+public:
+    __dictiterkeys(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
+    
+    K __next__() {
+        if (!current) {
+            throw "StopIteration";
+        }
+        K key = current->key;
+        current = current->next;
+        return key;
+    }
+};
+
+template<class K, class V>
+class __dictitervalues : public __iter<V> {
+protected:
+    dict<K,V> *dict_ptr;
+    dict_entry<K,V> *current;
+
+public:
+    __dictitervalues(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
+    
+    V __next__() {
+        if (!current) {
+            throw "StopIteration";
+        }
+        V value = current->value;
+        current = current->next;
+        return value;
+    }
+};
+
+template<class K, class V>
+class __dictiteritems : public __iter<tuple2<K,V>*> {
+protected:
+    dict<K,V> *dict_ptr;
+    dict_entry<K,V> *current;
+
+public:
+    __dictiteritems(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
+    
+    tuple2<K,V> *__next__() {
+        if (!current) {
+            throw "StopIteration";
+        }
+        tuple2<K,V> *tuple = new tuple2<K,V>(2, current->key, current->value);
+        current = current->next;
+        return tuple;
     }
 };
 
 } // namespace shedskin
-#endif
+
+#endif // SS_DICT_HPP

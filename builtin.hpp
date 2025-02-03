@@ -2,13 +2,54 @@
 #define BUILTIN_HPP
 
 // Basic type definitions 
-typedef unsigned long size_t; 
+typedef unsigned long size_t;
 #ifndef NULL 
 #define NULL 0 
 #endif
 
-namespace shedskin { 
-    // Core type definitions 
+// Define assertion handling
+class AssertionError {
+public:
+    const char* message;
+    AssertionError(const char* msg) : message(msg) {}
+};
+
+#ifndef __SS_NOASSERT
+#define ASSERT(x, y) if(!(x)) throw new AssertionError(#y);
+#else
+#define ASSERT(x, y)
+#endif
+
+namespace shedskin {
+    // Core types that need to be available before dict.hpp
+    class pyobj { 
+    public: 
+        void* __class__; 
+        virtual ~pyobj() {} 
+    };
+
+    // Basic class definitions needed
+    class str : public pyobj { 
+    public: 
+        char* unit;
+        str(const char* s) : unit(const_cast<char*>(s)) { __class__ = NULL; } 
+        virtual ~str() {} 
+    };
+
+    template<class T1, class T2> class tuple2;
+    template<class T> class __iter;
+
+    // Forward declarations for dict.hpp
+    template<class K, class V> class dict;
+    template<class K, class V> class __dictiterkeys;
+    template<class K, class V> class __dictitervalues;
+    template<class K, class V> class __dictiteritems;
+    template<class K, class V> struct dict_entry;
+
+    // Character cache
+    extern str* __char_cache[256];
+
+    // Core type definitions
     typedef long long __ss_int;
     typedef double __ss_float;
     typedef bool __ss_bool;
@@ -17,90 +58,36 @@ namespace shedskin {
     extern __ss_bool True;
     extern __ss_bool False;
 
-    // Forward declarations for all commonly used types/classes 
-    class str; 
-    class class_; 
-    template<class T> class list; 
-    template<class T1, class T2> class tuple2;
-
-    // Operator macros
-    #define __OR(a, b, t) ((___bool(__ ## t = a))?(__ ## t):(b))
-    #define __AND(a, b, t) ((!___bool(__ ## t = a))?(__ ## t):(b))
-    #define __NOT(x) (__mbool(!(x)))
-
-    // Forward declarations from function.hpp 
-    template<class T> inline __ss_int __int(T t) { return static_cast<__ss_int>(t); }
-    template<class T> inline __ss_float __float(T t) { return static_cast<__ss_float>(t); }
-    template<class T> inline str* __str(T t) { return nullptr; }
-    template<class T> inline T __abs(T t) { return t < 0 ? -t : t; }
-    template<class T> inline __ss_int len(T x) { return 0; }
-    
-    // Print functions
+    // Basic functions needed
+    template<typename T> bool __eq(T a, T b) { return a == b; }
+    inline __ss_bool ___bool(__ss_bool b) { return b; }
     void print(str* s);
-    template<class... Args> void print(Args... args) {}
-    
-    // Core functions used across modules 
-    inline __ss_bool __mbool(bool b) { return b; } 
-    inline __ss_bool ___bool(__ss_bool b) { return b; } 
-    template<typename T> bool __eq(T a, T b) { return a == b; } 
-    template<typename T> bool __ne(T a, T b) { return a != b; }
 
-    // Basic class definitions 
-    class pyobj { 
-    public: 
-        void* __class__; 
-        virtual ~pyobj() {} 
+    // Iterator base class needed by dict
+    template<class T> 
+    class __iter : public pyobj {
+    public:
+        virtual T __next__() = 0;
+        virtual ~__iter() {}
     };
 
-    class str : public pyobj { 
-    public: 
-        char* unit;  // Changed from string to char* to avoid ambiguity 
-        str(const char* s) : unit(const_cast<char*>(s)) {} 
-        virtual ~str() {} 
-    };
+    // Required initialization functions
+    void __init() {}
+    typedef void (*start_type)();
+    void __start(start_type func) {}
 
-    class class_ : public pyobj { 
-    public: 
-        class_(const char* name) {} 
-        virtual ~class_() {} 
-    };
-
-    // Full tuple2 implementation since it's needed everywhere 
-    template<class T1, class T2> 
-    class tuple2 : public pyobj { 
-    public: 
-        T1 first; 
-        T2 second; 
-        int size;
-
-        tuple2() : size(0), first(), second() { 
-            __class__ = NULL; 
-        }
-
-        tuple2(const T1& f, const T2& s) : size(2), first(f), second(s) { 
-            __class__ = NULL; 
-        }
-
-        tuple2(int s, const T1& f, const T2& s2) : size(s), first(f), second(s2) { 
-            __class__ = NULL; 
-        }
-
-        virtual ~tuple2() {} 
-    };
-
-    // Initialization functions 
-    void __init() {} 
-    typedef void (*start_type)(); 
-    void __start(start_type func) {} 
+    template<class T> inline __ss_int __int(T t) { return static_cast<__ss_int>(t); }
 }
 
-// Namespace aliases for generated code 
-namespace __shedskin__ = shedskin; 
-namespace __math__ = shedskin; 
+// Include full implementations
+#include "dict.hpp"
+#include "tuple.hpp"
+
+// Namespace aliases
+namespace __shedskin__ = shedskin;
+namespace __math__ = shedskin;
 namespace __time__ = shedskin;
+
 using namespace shedskin;
 
-// Simplified assertion macro 
-#define ASSERT(condition, message) if(!(condition)) { throw "Assertion failed"; }
-
-#endif // BUILTIN_HPP
+#endif
