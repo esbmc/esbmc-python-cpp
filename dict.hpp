@@ -5,7 +5,6 @@
 
 namespace shedskin {
 
-// Dict implementation is kept in the same namespace as the forward declarations
 template<class K, class V> 
 struct dict_entry {
     K key;
@@ -15,30 +14,39 @@ struct dict_entry {
 };
 
 template<class K, class V>
+class __dictiterkeys;
+
+template<class K, class V>
+class __dictitervalues;
+
+template<class K, class V>
+class __dictiteritems;
+
+template<class K, class V>
 class dict : public pyobj {
 private:
     dict_entry<K,V> *entries;
-    size_t count;
+    __ss_int count;
 
 public:
     dict() : entries(nullptr), count(0) {
-        __class__ = NULL;
+        this->__class__ = cl_dict;
     }
 
     // Constructor for initializing with tuples
     template<class... Args>
     dict(int size, Args... args) : entries(nullptr), count(0) {
-        __class__ = NULL;
-        (insert_tuple(args), ...);
-    }
-
-    template<class T>
-    void insert_tuple(tuple2<K,V>* t) {
-        __setitem__(t->first, t->second);
+        this->__class__ = cl_dict;
+        int dummy[] = {(__add_items(args), 0)...};
+        (void)dummy;
     }
 
     ~dict() {
         clear();
+    }
+
+    void __add_items(tuple2<K,V>* t) {
+        __setitem__(t->__getfirst__(), t->__getsecond__());
     }
 
     void *__setitem__(K key, V value) {
@@ -57,14 +65,14 @@ public:
     V __getitem__(K key) {
         dict_entry<K,V> *entry = find_entry(key);
         if (!entry) {
-            throw "KeyError";
+            throw new ValueError(new str("KeyError"));
         }
         return entry->value;
     }
 
     void *__delitem__(K key) {
         if (!entries) {
-            throw "KeyError";
+            throw new ValueError(new str("KeyError"));
         }
 
         if (__eq(entries->key, key)) {
@@ -86,10 +94,10 @@ public:
             }
             current = current->next;
         }
-        throw "KeyError";
+        throw new ValueError(new str("KeyError"));
     }
 
-    __ss_int __len__() const {
+    __ss_int __len__() {
         return count;
     }
 
@@ -128,15 +136,30 @@ public:
     }
 
     __dictiterkeys<K,V> *keys() {
-        return new __dictiterkeys<K,V>(this);
+        return new __dictiterkeys<K,V>(entries);
     }
 
     __dictitervalues<K,V> *values() {
-        return new __dictitervalues<K,V>(this);
+        return new __dictitervalues<K,V>(entries);
     }
 
     __dictiteritems<K,V> *items() {
-        return new __dictiteritems<K,V>(this);
+        return new __dictiteritems<K,V>(entries);
+    }
+
+    __ss_bool __eq__(pyobj *p) {
+        dict<K,V> *other = (dict<K,V> *)p;
+        if (other->__len__() != this->__len__())
+            return False;
+        
+        dict_entry<K,V> *current = entries;
+        while (current) {
+            dict_entry<K,V> *other_entry = other->find_entry(current->key);
+            if (!other_entry || __ne(other_entry->value, current->value))
+                return False;
+            current = current->next;
+        }
+        return True;
     }
 
 private:
@@ -155,17 +178,14 @@ private:
 // Iterator implementations
 template<class K, class V>
 class __dictiterkeys : public __iter<K> {
-protected:
-    dict<K,V> *dict_ptr;
+private:
     dict_entry<K,V> *current;
-
 public:
-    __dictiterkeys(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
+    __dictiterkeys(dict_entry<K,V> *first) : current(first) {}
     
-    K __next__() {
-        if (!current) {
-            throw "StopIteration";
-        }
+    K __next__() override {
+        if (!current) 
+            throw new ValueError(new str("StopIteration"));
         K key = current->key;
         current = current->next;
         return key;
@@ -174,17 +194,14 @@ public:
 
 template<class K, class V>
 class __dictitervalues : public __iter<V> {
-protected:
-    dict<K,V> *dict_ptr;
+private:
     dict_entry<K,V> *current;
-
 public:
-    __dictitervalues(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
+    __dictitervalues(dict_entry<K,V> *first) : current(first) {}
     
-    V __next__() {
-        if (!current) {
-            throw "StopIteration";
-        }
+    V __next__() override {
+        if (!current) 
+            throw new ValueError(new str("StopIteration"));
         V value = current->value;
         current = current->next;
         return value;
@@ -193,20 +210,17 @@ public:
 
 template<class K, class V>
 class __dictiteritems : public __iter<tuple2<K,V>*> {
-protected:
-    dict<K,V> *dict_ptr;
+private:
     dict_entry<K,V> *current;
-
 public:
-    __dictiteritems(dict<K,V> *d) : dict_ptr(d), current(d->entries) {}
+    __dictiteritems(dict_entry<K,V> *first) : current(first) {}
     
-    tuple2<K,V> *__next__() {
-        if (!current) {
-            throw "StopIteration";
-        }
-        tuple2<K,V> *tuple = new tuple2<K,V>(2, current->key, current->value);
+    tuple2<K,V> *__next__() override {
+        if (!current) 
+            throw new ValueError(new str("StopIteration"));
+        tuple2<K,V> *result = new tuple2<K,V>(2, current->key, current->value);
         current = current->next;
-        return tuple;
+        return result;
     }
 };
 

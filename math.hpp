@@ -250,7 +250,9 @@ template<class T> T __div2(__ss_float n, T a) {
 
 // Float checks
 inline __ss_bool __ss_is_integer(__ss_float d) {
-    return __mbool((__ss_int)d == d);
+    // return __mbool((__ss_int)d == d);
+    return __mbool(static_cast<__ss_int>(d) == d);
+
 }
 
 } // namespace shedskin
