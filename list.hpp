@@ -25,8 +25,8 @@ private:
 
     template<typename First, typename... Rest>
     void append_multiple(First first, Rest... rest) {
-        append(first); // Ajouter l'élément actuel
-        append_multiple(rest...); // Appel récursif pour ajouter les autres
+        append(first); // Add current element
+        append_multiple(rest...); // Recursive call to add others
     }
 
 public:
@@ -275,6 +275,140 @@ public:
     const Iterator begin() const { return Iterator(head); }
     const Iterator end() const { return Iterator(nullptr); }
 
+
+    // Check if an element is in the list (Python 'in' operator)
+    bool __contains__(const T& value) const {
+        Node* current = head;
+        while (current) {
+            if (current->data == value) {
+                return true;
+            }
+            current = current->next;
+        }
+        return false;
+    }
+
+    // Support for Python's sorted()
+    static list<T>* __sorted__(list<T>* input_list) {
+        if (!input_list) return new list<T>();
+        list<T>* sorted_list = new list<T>(*input_list);
+        
+        // Bubble sort
+        for (__ss_int i = 0; i < sorted_list->size_ - 1; i++) {
+            for (__ss_int j = 0; j < sorted_list->size_ - i - 1; j++) {
+                if (sorted_list->__getfast__(j) > sorted_list->__getfast__(j + 1)) {
+                    T temp = sorted_list->__getfast__(j);
+                    sorted_list->__setitem__(j, sorted_list->__getfast__(j + 1));
+                    sorted_list->__setitem__(j + 1, temp);
+                }
+            }
+        }
+        return sorted_list;
+    }
+
+    // Support for Python slicing (list[start:end])
+    list<T>* __getslice__(__ss_int start, __ss_int end) const {
+        list<T>* slice = new list<T>();
+        
+        if (start < 0) start = size_ + start;
+        if (end < 0) end = size_ + end;
+        
+        // Ajuster les bornes sans std::min/max
+        if (start < 0) start = 0;
+        if (start > size_) start = size_;
+        if (end < 0) end = 0;
+        if (end > size_) end = size_;
+        
+        Node* current = head;
+        for (__ss_int i = 0; i < start && current; i++) {
+            current = current->next;
+        }
+        
+        for (__ss_int i = start; i < end && current; i++) {
+            slice->append(current->data);
+            current = current->next;
+        }
+        
+        return slice;
+    }
+
+    // Support for Python slicing
+    list<T>* __slice__(__ss_int length, __ss_int start, __ss_int stop, __ss_int step) const {
+        list<T>* slice = new list<T>();
+        
+        if (start < 0) start = size_ + start;
+        if (stop < 0) stop = size_ + stop;
+        
+        if (start < 0) start = 0;
+        if (start > size_) start = size_;
+        if (stop < 0) stop = 0;
+        if (stop > size_) stop = size_;
+        
+        Node* current = head;
+        for (__ss_int i = 0; i < start && current; i++) {
+            current = current->next;
+        }
+        
+        for (__ss_int i = start; i < stop && current; i++) {
+            slice->append(current->data);
+            current = current->next;
+        }
+        
+        return slice;
+    }
+
+    // Operator overload for list concatenation
+    list<T>* operator+(const list<T>* other) const {
+        list<T>* result = new list<T>(*this);
+        if (other) {
+            Node* current = other->head;
+            while (current) {
+                result->append(current->data);
+                current = current->next;
+            }
+        }
+        return result;
+    }
+
+    // Operator overload for list replication
+    list<T>* operator*(__ss_int n) const {
+        list<T>* result = new list<T>();
+        for (__ss_int i = 0; i < n; i++) {
+            Node* current = head;
+            while (current) {
+                result->append(current->data);
+                current = current->next;
+            }
+        }
+        return result;
+    }
+
+    // Python-style addition
+    list<T>* __add__(list<T>* other) const {
+        list<T>* result = new list<T>(*this);
+        if (other) {
+            Node* current = other->head;
+            while (current) {
+                result->append(current->data);
+                current = current->next;
+            }
+        }
+        return result;
+    }
+
+    // Python-style multiplication
+    list<T>* __mul__(__ss_int n) const {
+        list<T>* result = new list<T>();
+        for (__ss_int i = 0; i < n; i++) {
+            Node* current = head;
+            while (current) {
+                result->append(current->data);
+                current = current->next;
+            }
+        }
+        return result;
+    }
+    
     // Modify the for_in_loop class inside list class (around line 263):
     class for_in_loop {
         typename list<T>::Iterator it;
@@ -295,6 +429,7 @@ public:
             return false;
         }
     };
+    
 };
 
 
@@ -318,6 +453,11 @@ template<typename T>
 bool __eq(list<T>* a, list<T>* b) {
     if (!a || !b) return false;
     return a->equals(b);
+}
+
+template<typename T>
+list<T>* sorted(list<T>* lst, __ss_int start=0, __ss_int stop=0, __ss_int step=0) {
+    return list<T>::__sorted__(lst);
 }
 
 } // namespace shedskin

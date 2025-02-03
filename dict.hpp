@@ -64,6 +64,18 @@ private:
     __ss_int size_;
 
 public:
+
+    template <typename... Args>
+    dict(__ss_int count, Args... args) : size_(0) {
+        tuple2<K, V>* tuples[] = {args...}; // Stores tuples
+        for (__ss_int i = 0; i < count && i < SIZE; i++) {
+            keys[i] = tuples[i]->first;
+            values[i] = tuples[i]->second;
+            used[i] = true;
+            size_++;
+        }
+    }
+
     dict() : size_(0) {
         // Initialize in blocks of 4
         INIT_USED_4(0)  INIT_USED_4(4)  INIT_USED_4(8)  INIT_USED_4(12)

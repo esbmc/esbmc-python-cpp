@@ -20,5 +20,3 @@ def test_pop_from_dict():
 test_pop_from_dict()
 
 print("Test passed!")
-
-
