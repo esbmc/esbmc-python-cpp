@@ -25,8 +25,8 @@ private:
 
     template<typename First, typename... Rest>
     void append_multiple(First first, Rest... rest) {
-        append(first); // Ajouter l'élément actuel
-        append_multiple(rest...); // Appel récursif pour ajouter les autres
+        append(first); // Add current element
+        append_multiple(rest...); // Recursive call to add others
     }
 
 public:
