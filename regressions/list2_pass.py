@@ -41,8 +41,8 @@ def test_list_properties():
     assert replicated_list == [4, 5, 4, 5], f"Expected {list3} * 2 to be [4, 5, 4, 5]"
 
     # Test 9: List slicing
-    # sublist = list1[1:3]
-    # assert sublist == [2, 3], f"Expected slice of {list1} from index 1 to 3 to be [2, 3]"
+    sublist = list1[1:3]
+    assert sublist == [2, 3], f"Expected slice of {list1} from index 1 to 3 to be [2, 3]"
 
     # Test 10: Empty list
     empty_list = []
