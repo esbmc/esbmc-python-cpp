@@ -1,0 +1,539 @@
+#ifndef SS_BUILTIN_HPP
+#define SS_BUILTIN_HPP
+
+// Core C includes
+#include <stdlib.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <math.h>
+#include <ctype.h>
+#include <limits.h>
+#include <stdexcept> // Include for std::out_of_range
+
+// Use minimal headers to avoid conflicts
+#include "definitions.h"
+#include <new>
+#include <sstream>
+#include <unordered_map> // Include for std::unordered_map
+
+// Import C functions into global namespace
+using ::size_t;
+using ::strtoll;
+using ::strtoull;
+using ::strtof;
+using ::strtod;
+using ::strtold;
+
+// Define max_align_t properly
+#if defined(__APPLE__)
+using max_align_t = std::max_align_t;
+#else
+typedef long double max_align_t;
+#endif
+
+// Bring memcpy into std namespace
+namespace std {
+    using ::memcpy;
+}
+
+// Forward declarations for std1 namespace
+namespace std1 {
+    template<typename T> struct allocator;
+    template<typename T> struct char_traits;
+
+    // Forward declare container templates
+    template<typename T, typename Alloc = allocator<T>> class vector;
+    template<typename T, typename Alloc = allocator<T>> class list;
+    template<typename CharT, typename Traits = char_traits<CharT>, 
+             typename Alloc = allocator<CharT>> class basic_string;
+    
+    using string = basic_string<char>;
+
+    // Use std::__1 namespace for tuple types
+    using std::__1::tuple;
+    using std::__1::tuple_element; 
+    using std::__1::tuple_size;
+
+    // Memory management functions in std1
+    [[noreturn]] inline void __throw_bad_array_new_length() { 
+        throw std::bad_alloc(); 
+    }
+    
+    inline void* __libcpp_allocate(size_t size, size_t align) { 
+        return malloc(size); 
+    }
+    
+    inline void __libcpp_deallocate(void* ptr, size_t size, size_t align) { 
+        free(ptr); 
+    }
+
+    // Type traits
+    template<typename T> struct is_nothrow_move_constructible {
+        static const bool value = true;
+    };
+
+    template<typename T> struct is_copy_constructible {
+        static const bool value = true;
+    };
+}
+
+namespace __shedskin__ {
+    /* integer type */
+    #if defined(__SS_INT32)
+        typedef int32_t __ss_int;
+    #elif defined(__SS_INT64)
+        typedef int64_t __ss_int;
+        #define __SS_LONG
+    #else
+        typedef int __ss_int;
+    #endif
+
+    /* float type */
+    typedef double __ss_float;
+
+    /* STL types with gc_allocator */
+    #define __GC_VECTOR(T) std1::vector< T, std1::allocator< T > >
+    #define __GC_STRING std1::basic_string<char,std1::char_traits<char>,std1::allocator<char> >
+
+    class gc {};
+
+    // Forward declarations
+    template <class K, class V> class dict;
+    template <class T> class __iter;
+
+    class pyobj : public gc {
+    public:
+        class class_;
+        class str;
+        class __ss_bool;
+        class ValueError;
+        class StopIteration;
+        
+        class_ *__class__;
+        
+        virtual str *__repr__();
+        virtual str *__str__();
+        virtual long __hash__();
+        virtual __ss_int __cmp__(pyobj *p);
+        virtual __ss_bool __eq__(pyobj *p);
+        virtual __ss_bool __ne__(pyobj *p);
+        virtual __ss_bool __gt__(pyobj *p);
+        virtual __ss_bool __lt__(pyobj *p);
+        virtual __ss_bool __ge__(pyobj *p);
+        virtual __ss_bool __le__(pyobj *p);
+        virtual pyobj *__copy__();
+        virtual pyobj *__deepcopy__(dict<void *, pyobj *> *);
+        virtual __ss_int __len__();
+        virtual __ss_int __int__();
+        virtual __ss_bool __nonzero__();
+        virtual __ss_int __index__();
+
+        static const bool is_pyseq = false;
+    };
+
+    // Full definition of pyobj::str
+    class str {
+    public:
+        std::string data;
+        str(const char* s) : data(s) {}
+        str(const std::string& s) : data(s) {}
+        const char* c_str() const { return data.c_str(); }
+    };
+
+    // Full definition of pyobj::StopIteration
+    class StopIteration : public std::exception {
+    public:
+        StopIteration() {}
+    };
+
+
+inline __ss_bool __mbool(bool value) {
+    return __ss_bool(value);
+}
+
+[[noreturn]] inline void __throw_index_out_of_range() {
+    throw std::out_of_range("Index out of range");
+}
+
+// Full definition of pyobj::ValueError
+class ValueError : public std::exception {
+public:
+    std::string msg;
+    ValueError(const std::string& message) : msg(message) {}
+};
+
+    /* abstract iterable class */
+    template <class T> class pyiter : public pyobj {
+    public:
+        virtual __iter<T> *__iter__() = 0;
+        virtual __ss_bool __contains__(T t);
+
+        typedef T for_in_unit;
+        typedef __iter<T> * for_in_loop;
+
+        inline __iter<T> *for_in_init();
+        inline bool for_in_has_next(__iter<T> *iter);
+        inline T for_in_next(__iter<T> *iter);
+    };
+
+    /* abstract sequence class */
+    template <class T> class pyseq : public pyiter<T> {
+    public:
+        virtual __ss_int __len__() = 0;
+        virtual T __getitem__(__ss_int i) = 0;
+        virtual __ss_int __cmp__(pyobj *p);
+        virtual __iter<T> *__iter__();
+
+        typedef T for_in_unit;
+        typedef size_t for_in_loop;
+
+        inline size_t for_in_init();
+        inline bool for_in_has_next(size_t i);
+        inline T for_in_next(size_t &i);
+
+        static const bool is_pyseq = true;
+    };
+
+    /* iterator class */
+    template<class T> class __iter : public pyiter<T> {
+    public:
+        T __result;
+        bool __stop_iteration;
+
+        __iter<T> *__iter__();
+        virtual T __next__();
+        virtual T __get_next();
+        str *__repr__();
+    };
+
+    /* sequence iterator */
+    template <class T> class __seqiter : public __iter<T> {
+    public:
+        __ss_int counter, size;
+        pyseq<T> *p;
+        __seqiter<T>();
+        __seqiter<T>(pyseq<T> *p);
+        T __next__();
+    };
+
+    /* class_ definition */
+    class class_ : public pyobj {
+    public:
+        str *__name__;
+        class_(const char *name);
+        str *__repr__();
+        __ss_bool __eq__(pyobj *c);
+    };
+
+    /* object definition */
+    class object : public pyobj {
+    public:
+        object();
+    };
+
+    /* generic min/max functions */
+    template<class T> T ___max(int n, int total, T t1) {
+        return t1;
+    }
+
+    template<class T> T ___max(int n, int total, T t1, T t2) {
+        return (t1>t2)?t1:t2;
+    }
+
+    template<class T> T ___max(int n, int total, T t1, T t2, T t3) {
+        T m = (t1>t2)?t1:t2;
+        return (t3>m)?t3:m;
+    }
+
+    template<class T> T ___min(int n, int total, T t1, T t2) {
+        return (t1<t2)?t1:t2;
+    }
+
+    template<class T> T ___min(int n, int total, T t1, T t2, T t3) {
+        T m = (t1<t2)?t1:t2;
+        return (t3<m)?t3:m;
+    }
+
+    /* slicing */
+    void slicenr(__ss_int x, __ss_int &l, __ss_int &u, __ss_int &s, __ss_int len);
+
+    /* tuple unpacking */
+    template<class T> void __unpack_check(T t, int expected) {
+        if(len(t) > (__ss_int)expected)
+            throw new pyobj::ValueError(new pyobj::str("too many values to unpack"));
+        else if(len(t) < (__ss_int)expected)
+            throw new pyobj::ValueError(new pyobj::str("not enough values to unpack"));
+    }
+
+    /* Index translation */
+    template<class T> __ss_int __mods(__ss_int a, T b) {
+        __ss_int m = a % b;
+        if (m < 0) m += b;
+        return m;
+    }
+
+    template<class T> __ss_int __divs(__ss_int a, T b) {
+        return (a - __mods(a, b))/b;
+    }
+
+    /* string joining */
+    template<class T> pyobj::str *__join_helper(pyobj::str *sep, T begin, T end) {
+        std::stringstream ss;
+        int i = 0;
+        while(begin != end) {
+            if(i != 0)
+                ss << sep->c_str();
+            ss << (*begin)->c_str();
+            ++i;
+            ++begin;
+        }
+        return new pyobj::str(ss.str());
+    }
+
+    /* template implementations */
+    template<class T> inline __iter<T> *pyiter<T>::for_in_init() {
+        return this->__iter__();
+    }
+
+    template<class T> inline bool pyiter<T>::for_in_has_next(__iter<T> *iter) {
+        iter->__result = iter->__get_next();
+        return not iter->__stop_iteration;
+    }
+
+    template<class T> inline T pyiter<T>::for_in_next(__iter<T> *iter) {
+        return iter->__result;
+    }
+
+    template<class T> inline size_t pyseq<T>::for_in_init() {
+        return 0;
+    }
+
+    template<class T> inline bool pyseq<T>::for_in_has_next(size_t i) {
+        return (__ss_int)i < __len__();
+    }
+
+    template<class T> inline T pyseq<T>::for_in_next(size_t &i) {
+        __ss_int pos = (__ss_int)i;
+        i++;
+        return __getitem__(pos);
+    }
+
+    /* Iterator methods */
+    template<class T> __iter<T> *__iter<T>::__iter__() {
+        __stop_iteration = false;
+        return this;
+    }
+
+    template<class T> T __iter<T>::__next__() {
+        __result = this->__get_next();
+        if(__stop_iteration)
+            throw new pyobj::StopIteration();
+        return __result;
+    }
+
+    template<class T> T __iter<T>::__get_next() {
+        try {
+            __result = this->__next__();
+        } catch (pyobj::StopIteration *) {
+            __stop_iteration = true;
+        }
+        return __result;
+    }
+
+    /* Sequence iterator implementations */
+    template<class T> __seqiter<T>::__seqiter() {}
+
+    template<class T> __seqiter<T>::__seqiter(pyseq<T> *seq) {
+        this->p = seq;
+        size = seq->__len__();
+        counter = 0;
+    }
+
+    template<class T> T __seqiter<T>::__next__() {
+        if(counter==size)
+            throw new StopIteration();
+        return p->__getitem__(counter++);
+    }
+
+    /* for loop macros */
+    #define FOR_IN(e,p,d1,d2,d3) \
+        __##d1 = p; \
+        __##d3 = __##d1->for_in_init(); \
+        while(__##d1->for_in_has_next(__##d3)) { \
+            e = __##d1->for_in_next(__##d3);
+
+    #define END_FOR }
+
+    /* with statement */
+    template<class T> class __With {
+    public:
+        __With(T expr) : _expr(expr) {
+            _expr->__enter__();
+        }
+        ~__With() {
+            _expr->__exit__();
+        }
+        operator T() const {
+            return _expr;
+        }
+    private:
+        T _expr;
+    };
+
+    #define WITH(e, n) { __With<decltype(e)> __with##n(e)
+    #define WITH_VAR(e, v, n) { __With<decltype(e)> __with##n(e); decltype(e) v = __with##n;
+    #define END_WITH }
+
+    /* boolean operations */
+    #define __OR(a, b, t) ((___bool(__ ## t = a))?(__ ## t):(b))
+    #define __AND(a, b, t) ((!___bool(__ ## t = a))?(__ ## t):(b))
+    #define __NOT(x) (__mbool(!(x)))
+
+    /* Hash and equality functors */
+    template<typename T>
+    struct ss_hash {
+        size_t operator()(const T& t) const { return t.__hash__(); }
+    };
+
+    template<typename T> 
+    struct ss_eq {
+        bool operator()(const T& a, const T& b) const { return a.__eq__(b).__bool__(); }
+    };
+
+    /* collection implementations */
+    template <class K, class V>
+    using __GC_DICT = std::unordered_map<K, V, ss_hash<K>, ss_eq<K>>;
+
+    template <class T>
+    using __GC_SET = std::unordered_set<T, ss_hash<T>, ss_eq<T>>;
+
+    /* wrapper functions */
+    template<class T> static inline int __wrap(T a, __ss_int i) {
+        __ss_int l = len(a);
+    #ifndef __SS_NOWRAP
+        if(unlikely(i<0)) i += l;
+    #endif
+    #ifndef __SS_NOBOUNDS
+        if(unlikely(i<0 || i>= l))
+            __throw_index_out_of_range();
+    #endif
+        return i;
+    }
+
+    // Define len function for pyseq
+    template<class T>
+    __ss_int len(pyseq<T>& seq) {
+        return seq.__len__();
+    }
+
+    #ifdef __GNUC__
+    #define unlikely(x)       __builtin_expect((x), 0)
+    #else
+    #define unlikely(x)    (x)
+    #endif
+
+    // Define gc_allocator
+    template <typename T>
+    class gc_allocator {
+    public:
+        using value_type = T;
+
+        T* allocate(std::size_t n) {
+            return static_cast<T*>(::operator new(n * sizeof(T)));
+        }
+
+        void deallocate(T* p, std::size_t n) {
+            ::operator delete(p);
+        }
+    };
+
+    // Define unlikely macro
+    #ifdef __GNUC__
+    #define unlikely(x) __builtin_expect((x), 0)
+    #else
+    #define unlikely(x) (x)
+    #endif
+
+    /* pyiter contains implementation */
+    template<class T> inline bool pyiter<T>::__contains__(T t) {
+        T e;
+        typename pyiter<T>::for_in_loop __3;
+        int __2;
+        pyiter<T> *__1;
+        FOR_IN(e,this,1,2,3)
+            if(__eq(e,t))
+                return true;
+        END_FOR
+        return false;
+    }
+
+    /* pyseq cmp implementation */
+    template<class T> __ss_int pyseq<T>::__cmp__(pyobj *p) {
+        if (!p) return 1;
+        pyseq<T> *b = (pyseq<T> *)p;
+        int i, cmp;
+        int mnm = ___min(2, 0, this->__len__(), b->__len__());
+        for(i = 0; i < mnm; i++) {
+            cmp = __cmp(this->__getitem__(i), b->__getitem__(i));
+            if(cmp)
+                return cmp;
+        }
+        return __cmp(this->__len__(), b->__len__());
+    }
+
+    /* helper macros */
+    #define ASSERT(x, y) if(!(x)) throw new AssertionError(y)
+
+    /* initialization */
+    void __init();
+    void __start(void (*initfunc)());
+    void __ss_exit(int code=0);
+
+} // namespace __shedskin__
+
+// Include all builtin type implementations
+// #include "builtin/bool.hpp"
+// #include "builtin/exception.hpp"
+// #include "builtin/extmod.hpp"
+// #include "builtin/tuple.hpp"
+// #include "builtin/function.hpp"
+// #include "builtin/list.hpp"
+// #include "builtin/bytes.hpp"
+// #include "builtin/math.hpp"
+// #include "builtin/dict.hpp"
+// #include "builtin/set.hpp"
+// #include "builtin/file.hpp"
+// #include "builtin/format.hpp"
+// #include "builtin/complex.hpp"
+// #include "builtin/copy.hpp"
+
+// Global placement new operators
+void *operator new(size_t count, void *ptr) { return ptr; }
+void *operator new[](size_t count, void *ptr) { return ptr; }
+
+namespace std {
+    [[noreturn]] inline void __throw_bad_array_new_length() { 
+        throw std::bad_alloc();
+    }
+    
+    inline void* __libcpp_allocate(size_t size, size_t align) {
+        return malloc(size);
+    }
+    
+    inline void __libcpp_deallocate(void* ptr, size_t size, size_t align) {
+        free(ptr);
+    }
+}
+
+namespace std::__1 {
+    using std::__throw_bad_array_new_length;
+    using std::__libcpp_allocate;
+    using std::__libcpp_deallocate;
+    
+    template<class... _Tp> class tuple;
+    template<size_t _Ip, class _Tp> struct tuple_element;
+    template<class _Tp> struct tuple_size;
+}
+
+#endif // SS_BUILTIN_HPP
