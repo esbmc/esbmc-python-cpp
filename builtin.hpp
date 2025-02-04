@@ -219,5 +219,6 @@ namespace ss = shedskin;
 #include "tuple.hpp"
 #include "bytes.hpp"
 #include "math.hpp"
+#include "random.hpp"
 
 #endif
