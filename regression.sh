@@ -14,6 +14,7 @@ declare -a test_cases=(
     "examples/example_19_tuples.py:pass"
     "examples/example_31_for_loop.py:pass"
     "examples/example_32_for_loop2.py:fail"
+    "examples/example_34_mix_types.py:pass"
 )
 
 # Variable to track overall success
