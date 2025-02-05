@@ -19,6 +19,19 @@ static const bool False = false;
 #define __NOT(x) (!(x))
 #define __AND(a, b, t) ((!___bool(__ ## t = a))?(__ ## t):(b))
 
+#define FAST_FOR(var, start, stop, step, zero, dir) \
+    for(__ss_int var = (start); \
+        dir ? (var < (stop)) : (var > (stop)); \
+        var = var + (step))
+
+#define FOR_IN(var, container, start, stop, step) \
+    for(__ss_int __##var##_iter = start; \
+        __##var##_iter < stop; \
+        __##var##_iter += step) \
+        if(auto var = container->__getitem__(__##var##_iter))
+
+#define END_FOR
+
 namespace shedskin {
     class str;
     class class_;
@@ -189,6 +202,18 @@ namespace shedskin {
     void __start(void (*initfunc)()) {
         initfunc();
     }
+
+    inline __ss_int __range(__ss_int stop) {
+        return stop;
+    }
+
+    inline __ss_int __range(__ss_int start, __ss_int stop) {
+        return stop;
+    }
+
+    inline __ss_int __range(__ss_int start, __ss_int stop, __ss_int step) {
+        return stop;
+    }
 } // namespace shedskin
 
 namespace ss = shedskin;
@@ -200,5 +225,6 @@ namespace ss = shedskin;
 #include "tuple.hpp"
 #include "bytes.hpp"
 #include "math.hpp"
+#include "random.hpp"
 
 #endif
