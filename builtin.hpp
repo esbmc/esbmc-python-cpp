@@ -24,6 +24,12 @@ static const bool False = false;
         dir ? (var < (stop)) : (var > (stop)); \
         var = var + (step))
 
+#define FOR_IN(var, container, start, stop, step) \
+    for(__ss_int __##var##_iter = start; \
+        __##var##_iter < stop; \
+        __##var##_iter += step) \
+        if(auto var = container->__getitem__(__##var##_iter))
+
 #define END_FOR
 
 namespace shedskin {
