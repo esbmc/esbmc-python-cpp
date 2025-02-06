@@ -1,6 +1,6 @@
 import esbmc
 
-def integer_squareroot(n: uint64) -> uint64:
+def integer_squareroot(n):
     if n <= 0:
         return 0
     x = n
