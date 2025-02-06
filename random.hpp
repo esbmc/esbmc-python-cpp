@@ -20,19 +20,38 @@ namespace __random__ {
         }
         
         __ss_int randrange(__ss_int stop) {
+            if (stop <= 0) {
+                throw ValueError(new str("Stop argument must be positive"));
+            }
             return (__ss_int)(random() * stop);
         }
         
         __ss_int randrange(__ss_int start, __ss_int stop) {
+            if (stop <= start) {
+                throw ValueError(new str("Stop argument must be greater than start"));
+            }
             return start + (__ss_int)(random() * (stop - start));
         }
         
         __ss_int randrange(__ss_int start, __ss_int stop, __ss_int step) {
+            if (step == 0) {
+                throw ValueError(new str("Step argument cannot be zero"));
+            }
             __ss_int width = stop - start;
+            if (width <= 0) {
+                throw ValueError(new str("Invalid range"));
+            }
             return start + ((__ss_int)(random() * (width/step))) * step;
         }
 
-        // Surcharge spéciale pour __ss_int qui retourne directement la valeur
+        __ss_int randint(__ss_int low, __ss_int high) {
+            if (high < low) {
+                throw ValueError(new str("High value must be greater than or equal to low value"));
+            }
+            return randrange(low, high + 1);
+        }
+
+        // Special overload for __ss_int that returns the value directly
         __ss_int choice(list<__ss_int>* lst) {
             if (!lst || lst->__len__() == 0) {
                 throw ValueError(new str("Cannot choose from empty sequence"));
@@ -41,7 +60,7 @@ namespace __random__ {
             return lst->__getitem__(index);
         }
 
-        // Version template générique pour les autres types
+        // Generic template version for other types
         template<typename T>
         T* choice(list<T>* lst) {
             if (!lst || lst->__len__() == 0) {
@@ -70,16 +89,16 @@ namespace __random__ {
         return _inst->randrange(start, stop, step); 
     }
 
-    int randint(int low, int high) {
-        return nondet_int();
+    __ss_int randint(__ss_int low, __ss_int high) {
+        return _inst->randint(low, high);
     }
 
-    // Surcharge spéciale pour __ss_int
+    // Special overload for __ss_int
     __ss_int choice(list<__ss_int>* lst) {
         return _inst->choice(lst);
     }
 
-    // Version template générique pour les autres types
+    // Generic template version for other types
     template<typename T>
     T* choice(list<T>* lst) {
         return _inst->choice(lst);
