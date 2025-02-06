@@ -104,6 +104,7 @@ namespace shedskin {
         return false;
     }
 
+
     bool isinstance_bool(bool val) { return true; }
     bool isinstance_int(__ss_int val) { return true; }
     bool isinstance_float(__ss_float val) { return true; }
@@ -214,6 +215,20 @@ namespace shedskin {
     inline __ss_int __range(__ss_int start, __ss_int stop, __ss_int step) {
         return stop;
     }
+
+    inline str* input(str* prompt) {
+        if (prompt && prompt->data) {
+            std::cout << prompt->data;
+        }
+        std::string line;
+        std::getline(std::cin, line);
+        return new str(line.c_str());
+    }
+
+    inline str* input() {
+        return input(new str(""));
+    }
+
 } // namespace shedskin
 
 namespace ss = shedskin;
