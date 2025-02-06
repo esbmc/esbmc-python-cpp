@@ -1,6 +1,8 @@
 import esbmc
 
 def integer_squareroot(n: uint64) -> uint64:
+    if n <= 0:
+        return 0
     x = n
     y = (x + 1) // 2
     while y < x:
