@@ -16,21 +16,26 @@ namespace __random__ {
         
         virtual __ss_float random() {
             __ss_int x = nondet_int();
-            return (x & 0x7fffffff) / (__ss_float)0x7fffffff;
+            if (x < 0) x = -x;
+            return (x % 0x7fffffff) / (__ss_float)0x7fffffff;
         }
         
         __ss_int randrange(__ss_int stop) {
             if (stop <= 0) {
                 throw ValueError(new str("Stop argument must be positive"));
             }
-            return (__ss_int)(random() * stop);
+            __ss_int x = nondet_int();
+            return x % stop;
         }
         
         __ss_int randrange(__ss_int start, __ss_int stop) {
             if (stop <= start) {
                 throw ValueError(new str("Stop argument must be greater than start"));
             }
-            return start + (__ss_int)(random() * (stop - start));
+            __ss_int width = stop - start;
+            __ss_int x = nondet_int();
+            if (x < 0) x = -x;
+            return start + (x % width);
         }
         
         __ss_int randrange(__ss_int start, __ss_int stop, __ss_int step) {
@@ -41,33 +46,46 @@ namespace __random__ {
             if (width <= 0) {
                 throw ValueError(new str("Invalid range"));
             }
-            return start + ((__ss_int)(random() * (width/step))) * step;
+            __ss_int n = width / step;
+            if (n <= 0) {
+                throw ValueError(new str("Empty range for given step"));
+            }
+            __ss_int x = nondet_int();
+            if (x < 0) x = -x;
+            return start + (x % n) * step;
         }
 
         __ss_int randint(__ss_int low, __ss_int high) {
             if (high < low) {
                 throw ValueError(new str("High value must be greater than or equal to low value"));
             }
-            return randrange(low, high + 1);
+            __ss_int x = nondet_int();
+            if (x < low) x = low;
+            if (x > high) x = high;
+            return x;
         }
 
-        // Special overload for __ss_int that returns the value directly
+        // Special case for __ss_int list
         __ss_int choice(list<__ss_int>* lst) {
             if (!lst || lst->__len__() == 0) {
                 throw ValueError(new str("Cannot choose from empty sequence"));
             }
-            __ss_int index = (__ss_int)(random() * lst->__len__());
-            return lst->__getitem__(index);
+            __ss_int len = lst->__len__();
+            __ss_int x = nondet_int();
+            if (x < 0) x = -x;
+            return lst->__getitem__(x % len);
         }
 
-        // Generic template version for other types
-        template<typename T>
+        // Generic version for other types
+        template<class T>
         T* choice(list<T>* lst) {
             if (!lst || lst->__len__() == 0) {
                 throw ValueError(new str("Cannot choose from empty sequence"));
             }
-            __ss_int index = (__ss_int)(random() * lst->__len__());
-            return new T(lst->__getitem__(index));
+            __ss_int len = lst->__len__();
+            __ss_int x = nondet_int();
+            if (x < 0) x = -x;
+            return new T(lst->__getitem__(x % len));
         }
     };
 
@@ -93,13 +111,13 @@ namespace __random__ {
         return _inst->randint(low, high);
     }
 
-    // Special overload for __ss_int
+    // Special case for __ss_int list
     __ss_int choice(list<__ss_int>* lst) {
         return _inst->choice(lst);
     }
 
-    // Generic template version for other types
-    template<typename T>
+    // Generic version for other types
+    template<class T>
     T* choice(list<T>* lst) {
         return _inst->choice(lst);
     }

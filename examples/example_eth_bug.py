@@ -1,4 +1,5 @@
 import esbmc
+import random
 
 def integer_squareroot(n):
     if n <= 0:
@@ -12,7 +13,11 @@ def integer_squareroot(n):
 
 n = esbmc.nondet_uint64()
 # This also triggers the bug and is good for testing
-# x = integer_squareroot(2**64-1)
 x = integer_squareroot(n)
+# x = integer_squareroot(n)
 
 assert x >= 0
+
+# r = random.randint(0, 100)
+# print(r)
+# assert 0<=r<=100
