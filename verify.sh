@@ -109,30 +109,30 @@ if [ -f "${FILENAME}.cpp" ]; then
        clang_success=false
 
        while [ $attempt -le $MAX_ATTEMPTS ] && [ "$clang_success" = false ]; do
-           echo "Attempt $attempt of $MAX_ATTEMPTS to generate valid C code..."
-           
-           # First attempt without clang test
-           if [ $attempt -eq 1 ]; then
-               aider --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" "${FILENAME}.c"
-           else
-               # Subsequent attempts with clang test
-               aider --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --test --auto-test --test-cmd "clang '${FILENAME}.c'" --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" "${FILENAME}.c"
-           fi
-           
-           # Test if clang compilation was successful
-           if clang "${FILENAME}.c" 2>/dev/null; then
-               echo "Successfully generated valid C code on attempt $attempt"
-               clang_success=true
-           else
-               echo "Clang compilation failed on attempt $attempt"
-               if [ $attempt -lt $MAX_ATTEMPTS ]; then
-                   echo "Retrying..."
-                   sleep 2  # Add a small delay between attempts
-               fi
-           fi
-           
-           ((attempt++))
-       done
+            echo "Attempt $attempt of $MAX_ATTEMPTS to generate valid C code..."
+            
+            # First attempt without parse check
+            if [ $attempt -eq 1 ]; then
+                aider --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" "${FILENAME}.c"
+            else
+                # Subsequent attempts with parse check during generation
+                aider --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --test --auto-test --test-cmd "esbmc --parse-tree-only '${FILENAME}.c'" --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" "${FILENAME}.c"
+            fi
+            
+            # Test if ESBMC parse was successful
+            if esbmc --parse-tree-only "${FILENAME}.c" 2>/dev/null; then
+                echo "Successfully generated valid C code on attempt $attempt"
+                clang_success=true
+            else
+                echo "ESBMC parse tree check failed on attempt $attempt"
+                if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                    echo "Retrying..."
+                    sleep 1  # Add a small delay between attempts
+                fi
+            fi
+            
+            ((attempt++))
+        done
 
        if [ "$clang_success" = false ]; then
            echo "Failed to generate valid C code after $MAX_ATTEMPTS attempts"
