@@ -88,7 +88,7 @@ fi
 # Check if virtual environment already exists
 if [ ! -d "venv" ]; then
     echo "Creating Python virtual environment..."
-    python3 -m venv venv
+    python3.12 -m venv venv
 else
     echo "Virtual environment already exists"
 fi
@@ -98,5 +98,5 @@ source venv/bin/activate
 
 echo "Installing Python requirements..."
 pip install -r requirements.txt
-
+pipx install aider-chat
 echo "Installation completed successfully!"

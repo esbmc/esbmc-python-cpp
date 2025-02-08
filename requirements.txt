@@ -1,1 +1,2 @@
-git+https://github.com/shedskin/shedskin.git
+shedskin@git+https://github.com/shedskin/shedskin.git@v0.9.10#egg=shedskin
+pipx

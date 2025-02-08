@@ -1,15 +1,17 @@
 #!/bin/bash
 # Default values
 USE_DOCKER=false
+USE_LLM=false
 DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
 
 # Function to show usage
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--image IMAGE_NAME | --container CONTAINER_ID] <filename>"
+  echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] <filename>"
   echo "Options:"
   echo "  --docker              Run ESBMC in Docker container"
+  echo "  --llm                Use LLM to convert C++ to C before verification"
   echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
   echo "  --container ID        Specify existing container ID"
   exit 1
@@ -19,6 +21,7 @@ show_usage() {
 while [[ $# -gt 0 ]]; do
    case $1 in
        --docker) USE_DOCKER=true; shift ;;
+       --llm) USE_LLM=true; shift ;;
        --image)
            [ -z "$2" ] && { echo "Error: --image requires a Docker image name"; show_usage; }
            [ ! -z "$CONTAINER_ID" ] && { echo "Error: Cannot use both --image and --container"; show_usage; }
@@ -76,15 +79,60 @@ SHEDSKIN_EXIT=$?
 
 # Run ESBMC if cpp file exists
 if [ -f "${FILENAME}.cpp" ]; then
+   if [ "$USE_LLM" = true ]; then
+       echo "Converting C++ to C using aider..."
+       # Create a temporary message file for aider
+       INSTRUCTION_FILE=$(mktemp)
+       echo "Convert this C++ code to C code, maintaining the same functionality. Remove any C++ specific features and replace them with C equivalents. Keep the verification properties intact.
+       
+        General Guidelines:
+        The resulting C code has to be verifiable by ESBMC.
+
+        Avoid dynamic memory allocation when possible
+        Use fixed-size arrays
+        Model known results directly instead of computing them
+        Break complex operations into simple, verifiable steps
+        Use clear, simple assertions
+        Avoid external library functions
+        When using loops, keep them simple and bounded.
+        Always #include <stdio.h> and #include <stdlib.h> as a header.
+        Do not oversimplify functions so that the logic is lost.
+        For ESBMC nondet_int() use this syntax: nondet_uint() without the keyword ESBMC in the function. 
+        However do not define nondet_uint(), ESBMC just understands what that keyword means. 
+        Do not declare a function stub like  int nondet_uint(); Just use the function in the code.
+        When the code says assert, translate it to just assert(), do not add in extra ESBMC assume conditions, unless the code indicates to add those in.
+       " > "$INSTRUCTION_FILE"
+       
+       # Run aider to convert C++ to C
+    #    aider --no-auto-commits --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" "${FILENAME}.c"
+       
+       aider --auto-test --no-auto-commits --test-cmd "esbmc '${FILENAME}.c' --parse-tree-only 2>/dev/null"  --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" ${FILENAME}.c
+
+       # Clean up the temporary instruction file
+       rm "$INSTRUCTION_FILE"
+       
+       # Rename the converted file
+    #    mv "${FILENAME}.cpp" "${FILENAME}.c"
+       TARGET_FILE="${FILENAME}.c"
+   else
+       TARGET_FILE="${FILENAME}.cpp"
+   fi
+   
    echo "Running ESBMC..."
    if [ "$USE_DOCKER" = true ]; then
        if [ ! -z "$CONTAINER_ID" ]; then
             docker exec "$CONTAINER_ID" mkdir -p /workspace
             docker cp . "$CONTAINER_ID":/workspace/
             docker exec -w /workspace "$CONTAINER_ID" \
-               esbmc --std c++17 --segfault-handler \
+               # Set C++ standard flag only if not using LLM (C code)
+               CPP_STD_FLAG=""
+               if [ "$USE_LLM" = false ]; then
+                   CPP_STD_FLAG="--std c++17"
+               fi
+               
+               esbmc $CPP_STD_FLAG --segfault-handler \
                -I/usr/include -I/usr/local/include -I. \
-               "${FILENAME}.cpp" --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace
+               "$TARGET_FILE" --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace
             ESBMC_EXIT=$?
             docker exec "$CONTAINER_ID" rm -rf /workspace/*
        else
@@ -92,19 +140,32 @@ if [ -f "${FILENAME}.cpp" ]; then
                -v "$(pwd)":/workspace \
                -w /workspace \
                "$DOCKER_IMAGE" \
-               esbmc --std c++17 --segfault-handler \
+               # Set C++ standard flag only if not using LLM (C code)
+               CPP_STD_FLAG=""
+               if [ "$USE_LLM" = false ]; then
+                   CPP_STD_FLAG="--std c++17"
+               fi
+               
+               esbmc $CPP_STD_FLAG --segfault-handler \
                -I/usr/include -I/usr/local/include -I. \
-               "${FILENAME}.cpp" --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace
+               "$TARGET_FILE" --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace
             ESBMC_EXIT=$?
        fi
    else
        GCC_LIB_PATH=$(dirname $(gcc -print-libgcc-file-name))
        ESBMC_EXTRA=""
        [ -d "$GCC_LIB_PATH/include" ] && ESBMC_EXTRA=" -I$GCC_LIB_PATH/include"
-       esbmc --std c++17 --segfault-handler \
-           -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
-           "${FILENAME}.cpp" --no-bounds-check --no-div-by-zero-check \
-           --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace
+       # Set C++ standard flag only if not using LLM (C code)
+       CPP_STD_FLAG=""
+       if [ "$USE_LLM" = false ]; then
+           CPP_STD_FLAG="--std c++17 -I."
+       fi
+       echo "Temporary files available in: $TEMP_DIR"
+       
+       esbmc $CPP_STD_FLAG  \
+           -I/usr/include -I/usr/local/include --segfault-handler $ESBMC_EXTRA \
+           "$TARGET_FILE" --no-bounds-check --no-div-by-zero-check \
+           --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets
        ESBMC_EXIT=$?
    fi
 else
