@@ -412,18 +412,18 @@ public:
         }
     };
     
-    // Supprime et retourne l'élément à l'index donné (par défaut, dernier élément)
+    // Deletes and returns the element to the given index (by default, the last element)
     T pop(__ss_int index = -1) {
         if (size_ == 0) {
-            throw std::out_of_range("pop from empty list");  // Erreur si la liste est vide
+            throw std::out_of_range("pop from empty list");  // Error if list is empty
         }
 
-        // Si l'index est négatif, on le convertit en positif
+        // If the index is negative, we convert it to positive
         if (index < 0) {
             index = size_ + index;
         }
 
-        // Vérification des bornes
+        // Checking terminals
         if (index < 0 || index >= size_) {
             throw std::out_of_range("pop index out of range");
         }
@@ -431,31 +431,31 @@ public:
         Node* current = head;
         Node* previous = nullptr;
 
-        // Chercher l'élément à l'index donné
+        // Find element with given index
         for (__ss_int i = 0; i < index; i++) {
             previous = current;
             current = current->next;
         }
 
-        T value = current->data;  // Sauvegarde la valeur avant suppression
+        T value = current->data;  // Save value before deletion
 
-        // Suppression de l'élément
+        // Delete element
         if (previous) {
             previous->next = current->next;
-            if (current == tail) {  // Mise à jour de `tail` si dernier élément supprimé
+            if (current == tail) {  // Update `tail` if last item deleted
                 tail = previous;
             }
         } else {
-            head = current->next;  // Mise à jour de `head` si premier élément supprimé
+            head = current->next;  // Update `head` if first element deleted
             if (!head) {
-                tail = nullptr;  // Liste vide après suppression
+                tail = nullptr;  // Empty list after deletion
             }
         }
 
         delete current;
         size_--;
 
-        return value;  // Retourne l'élément supprimé
+        return value;  // Returns the deleted element
     }
 
 };
