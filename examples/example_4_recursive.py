@@ -30,7 +30,6 @@ def demonstrate_recursive_tasks():
     sub_sub = Task("Sub-subtask")
     sub1.add_subtask(sub_sub)
 
-    print(main_task)
 
 if __name__ == "__main__":
     demonstrate_recursive_tasks()

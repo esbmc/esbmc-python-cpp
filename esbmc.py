@@ -7,6 +7,10 @@ def nondet_int() -> int:
     """Return a non-deterministic integer."""
     return random.randint(-2**31, 2**31-1)  # Simulated for Python execution
 
+def nondet_uint64() -> int:
+    """Return a non-deterministic integer."""
+    return random.randint(-2**64, 2**64-1)  # Simulated for Python execution
+
 def __ESBMC_assume(cond: bool) -> None:
     """Assume a condition is true."""
     if not cond:

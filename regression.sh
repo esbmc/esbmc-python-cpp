@@ -16,6 +16,9 @@ declare -a test_cases=(
     "examples/example_32_for_loop2.py:fail"
     "examples/example_35_input.py:pass"
     "examples/example_36_comparison.py:pass"
+    "examples/example_4_recursive.py:pass"
+    "examples/example_27_list_lambda.py:pass"
+    "examples/example_18_list.py:pass"
 )
 
 # Variable to track overall success
