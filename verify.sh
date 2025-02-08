@@ -103,16 +103,45 @@ if [ -f "${FILENAME}.cpp" ]; then
         When the code says assert, translate it to just assert(), do not add in extra ESBMC assume conditions, unless the code indicates to add those in.
        " > "$INSTRUCTION_FILE"
        
-       # Run aider to convert C++ to C
-    #    aider --no-auto-commits --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" "${FILENAME}.c"
-       
-       aider --auto-test --no-auto-commits --test-cmd "esbmc '${FILENAME}.c' --parse-tree-only 2>/dev/null"  --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" ${FILENAME}.c
+       # Initialize variables for the loop
+       MAX_ATTEMPTS=5
+       attempt=1
+       clang_success=false
+
+       while [ $attempt -le $MAX_ATTEMPTS ] && [ "$clang_success" = false ]; do
+           echo "Attempt $attempt of $MAX_ATTEMPTS to generate valid C code..."
+           
+           # First attempt without clang test
+           if [ $attempt -eq 1 ]; then
+               aider --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" "${FILENAME}.c"
+           else
+               # Subsequent attempts with clang test
+               aider --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --test --auto-test --test-cmd "clang '${FILENAME}.c'" --yes --message-file "$INSTRUCTION_FILE" --read "${FILENAME}.cpp" "${FILENAME}.c"
+           fi
+           
+           # Test if clang compilation was successful
+           if clang "${FILENAME}.c" 2>/dev/null; then
+               echo "Successfully generated valid C code on attempt $attempt"
+               clang_success=true
+           else
+               echo "Clang compilation failed on attempt $attempt"
+               if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                   echo "Retrying..."
+                   sleep 2  # Add a small delay between attempts
+               fi
+           fi
+           
+           ((attempt++))
+       done
+
+       if [ "$clang_success" = false ]; then
+           echo "Failed to generate valid C code after $MAX_ATTEMPTS attempts"
+           exit 1
+       fi
 
        # Clean up the temporary instruction file
        rm "$INSTRUCTION_FILE"
        
-       # Rename the converted file
-    #    mv "${FILENAME}.cpp" "${FILENAME}.c"
        TARGET_FILE="${FILENAME}.c"
    else
        TARGET_FILE="${FILENAME}.cpp"
