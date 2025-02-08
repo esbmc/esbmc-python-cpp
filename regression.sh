@@ -19,6 +19,7 @@ declare -a test_cases=(
     "examples/example_4_recursive.py:pass"
     "examples/example_27_list_lambda.py:pass"
     "examples/example_18_list.py:pass"
+    "examples/example_6_lists.py:pass"
 )
 
 # Variable to track overall success
