@@ -1,11 +1,11 @@
 nil = 0
 num = 0
 max = 1
-cap = 'A'
-low = 'a'
+cap = 'AB'
+low = 'ab'
 
 print('Equality: \t', nil, '==', num, nil == num)
-assert nil == num
+assert not (nil == max)
 
 print('Equality: \t', cap, '==', low, cap == low)
 assert not (cap == low)

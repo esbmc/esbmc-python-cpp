@@ -287,25 +287,7 @@ public:
         }
         return false;
     }
-
-    // Support for Python's sorted()
-    static list<T>* __sorted__(list<T>* input_list) {
-        if (!input_list) return new list<T>();
-        list<T>* sorted_list = new list<T>(*input_list);
-        
-        // Bubble sort
-        for (__ss_int i = 0; i < sorted_list->size_ - 1; i++) {
-            for (__ss_int j = 0; j < sorted_list->size_ - i - 1; j++) {
-                if (sorted_list->__getfast__(j) > sorted_list->__getfast__(j + 1)) {
-                    T temp = sorted_list->__getfast__(j);
-                    sorted_list->__setitem__(j, sorted_list->__getfast__(j + 1));
-                    sorted_list->__setitem__(j + 1, temp);
-                }
-            }
-        }
-        return sorted_list;
-    }
-
+ 
     // Support for Python slicing (list[start:end])
     list<T>* __getslice__(__ss_int start, __ss_int end) const {
         list<T>* slice = new list<T>();
@@ -430,6 +412,52 @@ public:
         }
     };
     
+    // Supprime et retourne l'élément à l'index donné (par défaut, dernier élément)
+    T pop(__ss_int index = -1) {
+        if (size_ == 0) {
+            throw std::out_of_range("pop from empty list");  // Erreur si la liste est vide
+        }
+
+        // Si l'index est négatif, on le convertit en positif
+        if (index < 0) {
+            index = size_ + index;
+        }
+
+        // Vérification des bornes
+        if (index < 0 || index >= size_) {
+            throw std::out_of_range("pop index out of range");
+        }
+
+        Node* current = head;
+        Node* previous = nullptr;
+
+        // Chercher l'élément à l'index donné
+        for (__ss_int i = 0; i < index; i++) {
+            previous = current;
+            current = current->next;
+        }
+
+        T value = current->data;  // Sauvegarde la valeur avant suppression
+
+        // Suppression de l'élément
+        if (previous) {
+            previous->next = current->next;
+            if (current == tail) {  // Mise à jour de `tail` si dernier élément supprimé
+                tail = previous;
+            }
+        } else {
+            head = current->next;  // Mise à jour de `head` si premier élément supprimé
+            if (!head) {
+                tail = nullptr;  // Liste vide après suppression
+            }
+        }
+
+        delete current;
+        size_--;
+
+        return value;  // Retourne l'élément supprimé
+    }
+
 };
 
 
@@ -455,10 +483,52 @@ bool __eq(list<T>* a, list<T>* b) {
     return a->equals(b);
 }
 
+// Default identity structure for basic types (int, float, etc.)
 template<typename T>
-list<T>* sorted(list<T>* lst, __ss_int start=0, __ss_int stop=0, __ss_int step=0) {
-    return list<T>::__sorted__(lst);
+struct Identity {
+    const T& operator()(const T& x) const { return x; }
+};
+
+// Main version of `sorted()` with 4 arguments
+template<typename T, typename Compare>
+list<T>* sorted(list<T>* lst, __ss_int start, Compare key, bool reverse) {
+    if (!lst) return new list<T>();
+
+    list<T>* sorted_list = new list<T>(*lst);  // Copy the original list
+
+    // Bubble Sort
+    for (__ss_int i = 0; i < sorted_list->size() - 1; i++) {
+        for (__ss_int j = 0; j < sorted_list->size() - i - 1; j++) {
+            auto val1 = key(sorted_list->__getfast__(j));
+            auto val2 = key(sorted_list->__getfast__(j + 1));
+
+            bool condition = reverse ? (val1 < val2) : (val1 > val2);
+            if (condition) {
+                T temp = sorted_list->__getfast__(j);
+                sorted_list->__setitem__(j, sorted_list->__getfast__(j + 1));
+                sorted_list->__setitem__(j + 1, temp);
+            }
+        }
+    }
+
+    return sorted_list;
 }
+
+// Simplified version with `reverse` (for numeric types)
+template<typename T>
+list<T>* sorted(list<T>* lst, bool reverse = false) {
+    return sorted(lst, 0, Identity<T>(), reverse);
+}
+
+// Version compatible with 4 arguments (to avoid ShedSkin errors)
+template<typename T>
+list<T>* sorted(list<T>* lst, __ss_int start, __ss_int key, __ss_int reverse) {
+    return sorted(lst, start, Identity<T>(), reverse);
+}
+
+
+
+
 
 } // namespace shedskin
 
