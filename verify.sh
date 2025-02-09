@@ -6,16 +6,18 @@ USE_DIRECT_CONVERSION=false
 DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
+ESBMC_EXTRA_OPTS=""
 
 # Function to show usage
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] <filename>"
+  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] <filename>"
   echo "Options:"
   echo "  --docker              Run ESBMC in Docker container"
   echo "  --llm                Use LLM to convert Python/C++ to C before verification"
   echo "  --direct-conversion   Skip Shedskin and use LLM directly (requires --llm)"
   echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
   echo "  --container ID        Specify existing container ID"
+  echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
   exit 1
 }
 
@@ -44,6 +46,11 @@ while [[ $# -gt 0 ]]; do
        --docker) USE_DOCKER=true; shift ;;
        --llm) USE_LLM=true; shift ;;
        --direct-conversion) USE_DIRECT_CONVERSION=true; shift ;;
+       --esbmc-opts)
+           [ -z "$2" ] && { echo "Error: --esbmc-opts requires options string"; show_usage; }
+           ESBMC_EXTRA_OPTS="$2"
+           shift 2
+           ;;
        --image)
            [ -z "$2" ] && { echo "Error: --image requires a Docker image name"; show_usage; }
            [ ! -z "$CONTAINER_ID" ] && { echo "Error: Cannot use both --image and --container"; show_usage; }
@@ -220,7 +227,7 @@ echo "Checking for threading..."
 THREAD_OPTIONS=""
 if check_threading "$TARGET_FILE"; then
     echo "Threading detected - adding context-bound option"
-    THREAD_OPTIONS="--context-bound 2"
+    THREAD_OPTIONS="--context-bound 3 --deadlock-check"
 else
     echo "No threading detected"
 fi
@@ -233,7 +240,7 @@ ESBMC_EXTRA=""
 # Construct the ESBMC command once
 ESBMC_CMD="esbmc $([ "$USE_CPP" = true ] && echo '--std c++17') --segfault-handler \
     -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
-    $TARGET_FILE --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace $THREAD_OPTIONS"
+    $TARGET_FILE --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace $THREAD_OPTIONS $ESBMC_EXTRA_OPTS"
 
 print_esbmc_cmd "$ESBMC_CMD"
 
