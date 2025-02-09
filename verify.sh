@@ -7,7 +7,7 @@ DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
 ESBMC_EXTRA_OPTS=""
-LLM_MODEL="openrouter/meta-llama/llama-3.3-70b-instruct"  # Default model
+LLM_MODEL="openrouter/anthropic/claude-3.5-sonnet"  # Default model
 
 # Function to show usage
 show_usage() {
@@ -19,7 +19,7 @@ show_usage() {
   echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
   echo "  --container ID        Specify existing container ID"
   echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
-  echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/meta-llama/llama-3.3-70b-instruct)"
+  echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/anthropic/claude-3.5-sonnet)"
   exit 1
 }
 
