@@ -7,10 +7,11 @@ DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
 ESBMC_EXTRA_OPTS=""
+LLM_MODEL="openrouter/meta-llama/llama-3.3-70b-instruct"  # Default model
 
 # Function to show usage
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] <filename>"
+  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] <filename>"
   echo "Options:"
   echo "  --docker              Run ESBMC in Docker container"
   echo "  --llm                Use LLM to convert Python/C++ to C before verification"
@@ -18,6 +19,7 @@ show_usage() {
   echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
   echo "  --container ID        Specify existing container ID"
   echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
+  echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/meta-llama/llama-3.3-70b-instruct)"
   exit 1
 }
 
@@ -49,6 +51,11 @@ while [[ $# -gt 0 ]]; do
        --esbmc-opts)
            [ -z "$2" ] && { echo "Error: --esbmc-opts requires options string"; show_usage; }
            ESBMC_EXTRA_OPTS="$2"
+           shift 2
+           ;;
+       --model)
+           [ -z "$2" ] && { echo "Error: --model requires a model name"; show_usage; }
+           LLM_MODEL="$2"
            shift 2
            ;;
        --image)
@@ -116,9 +123,9 @@ attempt_llm_conversion() {
         echo "Attempt $attempt of $max_attempts to generate valid code..."
         
         if [ $attempt -eq 1 ]; then
-            aider --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
+            aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
         else
-            aider --no-git --no-show-model-warnings --model openrouter/deepseek/deepseek-chat --test --auto-test --test-cmd "esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
+            aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test --test-cmd "esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
         fi
         
         if esbmc --parse-tree-only "$output_file" 2>/dev/null; then
