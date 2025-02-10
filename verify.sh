@@ -8,10 +8,11 @@ CONTAINER_ID=""
 TEMP_DIR=""
 ESBMC_EXTRA_OPTS=""
 LLM_MODEL="openrouter/anthropic/claude-3.5-sonnet"  # Default model
+TRANSLATION_MODE=""
 
 # Function to show usage
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] <filename>"
+  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] <filename>"
   echo "Options:"
   echo "  --docker              Run ESBMC in Docker container"
   echo "  --llm                Use LLM to convert Python/C++ to C before verification"
@@ -20,6 +21,9 @@ show_usage() {
   echo "  --container ID        Specify existing container ID"
   echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
   echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/anthropic/claude-3.5-sonnet)"
+  echo "  --translate MODE      Set translation mode (fast|reasoning)"
+  echo "                        fast: Use Gemini for quick translations"
+  echo "                        reasoning: Use DeepSeek for complex translations"
   exit 1
 }
 
@@ -48,6 +52,26 @@ while [[ $# -gt 0 ]]; do
        --docker) USE_DOCKER=true; shift ;;
        --llm) USE_LLM=true; shift ;;
        --direct-conversion) USE_DIRECT_CONVERSION=true; shift ;;
+       --translate)
+           [ -z "$2" ] && { echo "Error: --translate requires mode (fast|reasoning)"; show_usage; }
+           case "$2" in
+               fast)
+                   USE_LLM=true
+                   LLM_MODEL="openrouter/google/gemini-2.0-flash-001"
+                   TRANSLATION_MODE="fast"
+                   ;;
+               reasoning)
+                   USE_LLM=true
+                   LLM_MODEL="openrouter/deepseek/deepseek-r1"
+                   TRANSLATION_MODE="reasoning"
+                   ;;
+               *)
+                   echo "Error: Invalid translation mode. Use 'fast' or 'reasoning'"
+                   show_usage
+                   ;;
+           esac
+           shift 2
+           ;;
        --esbmc-opts)
            [ -z "$2" ] && { echo "Error: --esbmc-opts requires options string"; show_usage; }
            ESBMC_EXTRA_OPTS="$2"
@@ -109,6 +133,9 @@ cd "$TEMP_DIR"
 
 # Activate virtual environment from original directory if it exists
 [ -d "$OLD_PWD/venv" ] && source "$OLD_PWD/venv/bin/activate"
+
+# Print translation mode if set
+[ ! -z "$TRANSLATION_MODE" ] && echo "Using translation mode: $TRANSLATION_MODE with model: $LLM_MODEL"
 
 # Function to attempt LLM conversion with given instruction
 attempt_llm_conversion() {
