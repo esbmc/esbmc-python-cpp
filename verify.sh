@@ -160,8 +160,8 @@ validate_translation() {
     4. Threading behavior (if present)
     5. Error handling
     6. Keep the same logical assertions
-    
-    If you find any issues, provide the corrected C code that fixes these issues, following the 6 items above.
+    7. Keep the loop original semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++). Pay attention to the logical conditions 
+    If you find any issues, provide the corrected C code that fixes these issues, following the 7 items above.
     If no issues are found, just respond with 'TRANSLATION_OK'.
     
     Focus on correctness and verification properties." > "$VALIDATION_INSTRUCTION_FILE"
@@ -290,7 +290,7 @@ if [ $SHEDSKIN_EXIT -ne 0 ] && [ "$USE_LLM" = true ]; then
     - Handle Python-specific features appropriately
     - For random/arbitrary values, use nondet_uint() (no need to declare it)
     - Keep assertions as assert() without extra conditions
-    - Ensure all loops are bounded
+    - Keep the loop original semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++). Pay attention to the logical conditions
     - Add appropriate error handling
     - Keep variable names similar where possible
     - Break complex operations into simpler steps
@@ -330,7 +330,8 @@ elif [ -f "${FILENAME}.cpp" ]; then
         - Break complex operations into simple, verifiable steps
         - Use clear, simple assertions
         - Avoid external library functions
-        - Keep loops simple and bounded
+        - Keep the original loop semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++) Pay attention to the logial conditions in the loop
+	- Do not change the logical conditions
         - Always include stdio.h and stdlib.h
         - Do not oversimplify functions
         - Use nondet_uint() without ESBMC keyword
