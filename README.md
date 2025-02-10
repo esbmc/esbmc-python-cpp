@@ -16,3 +16,11 @@ The new **LLM** option. It allows one to:
 1. Adds option to verify thread safe code in python, in this case a direct conversion is made from python to verifiable C code.
 1. To run it, you need a token to openrouter or to deploy an LLM locally
 1. ```./verify.sh --llm <filename>```
+
+Recommended options:
+
+1. ./verify.sh --llm --model openrouter/deepseek/deepseek-chat examples/example_deadlock_bug.py (to save cloud cost)
+1. ./verify.sh --llm --translation fast examples/example_deadlock_bug.py (to translate code fast with google gemini)
+1. ./verify.sh --llm examples/example_deadlock_bug.py (Using the expensive Claude Antrophic LLM)
+1. ./verify.sh --llm --model <custom model including locally deployed LLMs) examples/example_deadlock_bug.py
+
