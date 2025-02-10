@@ -49,6 +49,18 @@ public:
         }
         return data->__getitem__(index);
     }
+
+    T __getfirst__() const {
+        return __getitem__(0);
+    }
+
+    T __getsecond__() const {
+        if (size < 2) {
+            throw std::runtime_error("Tuple does not have a second element");
+        }
+        return __getitem__(1);
+    }
+
     
     // Support for iteration
     class iterator {
