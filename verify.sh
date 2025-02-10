@@ -3,6 +3,7 @@
 USE_DOCKER=false
 USE_LLM=false
 USE_DIRECT_CONVERSION=false
+VALIDATE_TRANSLATION=false
 DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
@@ -24,6 +25,7 @@ show_usage() {
   echo "  --translate MODE      Set translation mode (fast|reasoning)"
   echo "                        fast: Use Gemini for quick translations"
   echo "                        reasoning: Use DeepSeek for complex translations"
+  echo "  --validate-translation Validate and fix translated code"
   exit 1
 }
 
@@ -52,6 +54,7 @@ while [[ $# -gt 0 ]]; do
        --docker) USE_DOCKER=true; shift ;;
        --llm) USE_LLM=true; shift ;;
        --direct-conversion) USE_DIRECT_CONVERSION=true; shift ;;
+       --validate-translation) VALIDATE_TRANSLATION=true; shift ;;
        --translate)
            [ -z "$2" ] && { echo "Error: --translate requires mode (fast|reasoning)"; show_usage; }
            case "$2" in
@@ -137,6 +140,91 @@ cd "$TEMP_DIR"
 # Print translation mode if set
 [ ! -z "$TRANSLATION_MODE" ] && echo "Using translation mode: $TRANSLATION_MODE with model: $LLM_MODEL"
 
+# Function to validate and fix translation
+validate_translation() {
+    local original_file=$1
+    local converted_file=$2
+    local success=false
+    local max_attempts=1
+    local attempt=1
+
+    echo "Validating translation..."
+    
+    # Create validation instruction file
+    VALIDATION_INSTRUCTION_FILE=$(mktemp)
+    echo "Compare these two code files. The first is the original code and the second is its translation to C.
+    Verify that the translation maintains:
+    1. All functional behavior
+    2. All verification properties and assertions
+    3. Proper handling of data structures
+    4. Threading behavior (if present)
+    5. Error handling
+    
+    If you find any issues, provide the corrected C code that fixes these issues.
+    If no issues are found, just respond with 'TRANSLATION_OK'.
+    
+    Focus on correctness and verification properties." > "$VALIDATION_INSTRUCTION_FILE"
+
+    while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
+        echo "Validation attempt $attempt of $max_attempts..."
+        
+        # Create a temporary file for potential fixes
+        FIXED_CODE_FILE=$(mktemp)
+        
+        # Create a combined file for LLM review
+        COMBINED_FILE=$(mktemp)
+        echo "=== ORIGINAL CODE ===" > "$COMBINED_FILE"
+        cat "$original_file" >> "$COMBINED_FILE"
+        echo -e "\n=== TRANSLATED CODE ===" >> "$COMBINED_FILE"
+        cat "$converted_file" >> "$COMBINED_FILE"
+
+        # Run validation using aider and capture output
+        echo "Sending code to LLM for validation..."
+        echo "----------------------------------------"
+        aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+            --message-file "$VALIDATION_INSTRUCTION_FILE" \
+            --read "$original_file" $converted_file
+        success=true
+        # RESPONSE=$(aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+        
+        # # Display LLM's analysis
+        # echo "LLM Analysis:"
+        # echo "$RESPONSE"
+        # echo "----------------------------------------"
+        
+        # # Save response to fixed code file for processing
+        # echo "$RESPONSE" > "$FIXED_CODE_FILE"
+        
+        # # Check if the validation response indicates the translation is OK
+        # if echo "$RESPONSE" | grep -q "TRANSLATION_OK"; then
+        #     echo "Translation validated successfully!"
+        #     success=true
+        # else
+        #     echo "Issues found in translation. Applying fixes..."
+        #     # Extract the C code from the response and update the converted file
+        #     sed -n '/```c/,/```/p' "$FIXED_CODE_FILE" | sed '1d;$d' > "$converted_file"
+            
+        #     # Verify the fixed code compiles
+        #     if esbmc --parse-tree-only "$converted_file" 2>/dev/null; then
+        #         echo "Fixed code validated successfully!"
+        #         success=true
+        #     else
+        #         echo "Fixed code failed validation"
+        #         if [ $attempt -lt $max_attempts ]; then
+        #             echo "Retrying..."
+        #             sleep 1
+        #         fi
+        #     fi
+        # fi
+        
+        rm "$FIXED_CODE_FILE"
+        ((attempt++))
+    done
+    
+    rm "$VALIDATION_INSTRUCTION_FILE"
+    return $([ "$success" = true ] && echo 0 || echo 1)
+}
+
 # Function to attempt LLM conversion with given instruction
 attempt_llm_conversion() {
     local input_file=$1
@@ -209,6 +297,15 @@ if [ $SHEDSKIN_EXIT -ne 0 ] && [ "$USE_LLM" = true ]; then
     
     if attempt_llm_conversion "${FILENAME}.py" "${FILENAME}.c" "$PYTHON_INSTRUCTION_FILE"; then
         echo "Successfully converted Python to C directly"
+        
+        if [ "$VALIDATE_TRANSLATION" = true ]; then
+            if ! validate_translation "${FILENAME}.py" "${FILENAME}.c"; then
+                echo "Translation validation failed"
+                rm "$PYTHON_INSTRUCTION_FILE"
+                exit 1
+            fi
+        fi
+        
         rm "$PYTHON_INSTRUCTION_FILE"
         TARGET_FILE="${FILENAME}.c"
         USE_CPP=false
@@ -239,6 +336,15 @@ elif [ -f "${FILENAME}.cpp" ]; then
         
         if attempt_llm_conversion "${FILENAME}.cpp" "${FILENAME}.c" "$CPP_INSTRUCTION_FILE"; then
             echo "Successfully converted C++ to C"
+            
+            if [ "$VALIDATE_TRANSLATION" = true ]; then
+                if ! validate_translation "${FILENAME}.cpp" "${FILENAME}.c"; then
+                    echo "Translation validation failed"
+                    rm "$CPP_INSTRUCTION_FILE"
+                    exit 1
+                fi
+            fi
+            
             rm "$CPP_INSTRUCTION_FILE"
             TARGET_FILE="${FILENAME}.c"
             USE_CPP=false
