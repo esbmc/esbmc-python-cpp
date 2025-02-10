@@ -159,8 +159,9 @@ validate_translation() {
     3. Proper handling of data structures
     4. Threading behavior (if present)
     5. Error handling
+    6. Keep the same logical assertions
     
-    If you find any issues, provide the corrected C code that fixes these issues.
+    If you find any issues, provide the corrected C code that fixes these issues, following the 6 items above.
     If no issues are found, just respond with 'TRANSLATION_OK'.
     
     Focus on correctness and verification properties." > "$VALIDATION_INSTRUCTION_FILE"
@@ -293,6 +294,7 @@ if [ $SHEDSKIN_EXIT -ne 0 ] && [ "$USE_LLM" = true ]; then
     - Add appropriate error handling
     - Keep variable names similar where possible
     - Break complex operations into simpler steps
+    - Keep the same logical assertions in the original and converted code
     - Avoid external library functions" > "$PYTHON_INSTRUCTION_FILE"
     
     if attempt_llm_conversion "${FILENAME}.py" "${FILENAME}.c" "$PYTHON_INSTRUCTION_FILE"; then
@@ -332,6 +334,7 @@ elif [ -f "${FILENAME}.cpp" ]; then
         - Always include stdio.h and stdlib.h
         - Do not oversimplify functions
         - Use nondet_uint() without ESBMC keyword
+	- Keep the same logical assertions
         - Keep assertions as assert() without extra conditions" > "$CPP_INSTRUCTION_FILE"
         
         if attempt_llm_conversion "${FILENAME}.cpp" "${FILENAME}.c" "$CPP_INSTRUCTION_FILE"; then
