@@ -19,8 +19,8 @@ The new **LLM** option. It allows one to:
 
 Recommended options:
 
-1. ./verify.sh --llm --model openrouter/deepseek/deepseek-chat examples/example_deadlock_bug.py (to save cloud cost)
-1. ./verify.sh --llm --translation fast examples/example_deadlock_bug.py (to translate code fast with google gemini)
-1. ./verify.sh --llm examples/example_deadlock_bug.py (Using the expensive Claude Antrophic LLM)
-1. ./verify.sh --llm --model <custom model including locally deployed LLMs) examples/example_deadlock_bug.py
+1. ```./verify.sh --llm --model openrouter/deepseek/deepseek-chat examples/example_deadlock_bug.py``` (to save cloud cost)
+1. ```./verify.sh --llm --translation fast examples/example_deadlock_bug.py``` (to translate code fast with google gemini)
+1. ```./verify.sh --llm examples/example_deadlock_bug.py``` (Using the expensive Claude Antrophic LLM)
+1. ```./verify.sh --llm --model <custom model including locally deployed LLMs> examples/example_deadlock_bug.py```
 
