@@ -8,10 +8,14 @@ DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
 ESBMC_EXTRA_OPTS=""
-LLM_MODEL="openrouter/anthropic/claude-3.5-sonnet"  # Default model
+LLM_MODEL="openrouter/anthropic/claude-3.5-sonnet"
 TRANSLATION_MODE=""
 
-# Function to show usage
+# Prompt file paths
+PYTHON_INSTRUCTION_FILE="prompts/python_prompt.txt"
+CPP_INSTRUCTION_FILE="prompts/cpp_prompt.txt"
+VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
+
 show_usage() {
   echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] <filename>"
   echo "Options:"
@@ -29,7 +33,6 @@ show_usage() {
   exit 1
 }
 
-# Function to print ESBMC command
 print_esbmc_cmd() {
     local cmd=$1
     echo "----------------------------------------"
@@ -38,17 +41,15 @@ print_esbmc_cmd() {
     echo "----------------------------------------"
 }
 
-# Check if the file contains threading code
 check_threading() {
     local file=$1
     if grep -qE "pthread|Thread|threading" "$file"; then
-        return 0  # Contains threading
+        return 0
     else
-        return 1  # No threading found
+        return 1
     fi
 }
 
-# Parse arguments
 while [[ $# -gt 0 ]]; do
    case $1 in
        --docker) USE_DOCKER=true; shift ;;
@@ -108,39 +109,28 @@ done
 FILENAME=$(basename "$FULLPATH" .py)
 DIRNAME=$(dirname "$FULLPATH")
 
-# Create temporary directory and copy files
 TEMP_DIR=$(mktemp -d)
 echo "Working directory: $TEMP_DIR"
 OLD_PWD=$(pwd)
 
-# Copy import file
-filesImport=$(ls module_import/)
-for file in $filesImport
-do
-    cp "module_import/$file" "$TEMP_DIR/${file}"
-done
+# Check if prompts directory exists
+[ ! -d "prompts" ] && { echo "Error: prompts directory not found"; exit 1; }
 
-# Copy necessary files
+# Copy import files and prompts
+cp -r module_import/* "$TEMP_DIR/" 2>/dev/null
 cp "$FULLPATH" "$TEMP_DIR/${FILENAME}.py"
 [ -f "esbmc.py" ] && cp "esbmc.py" "$TEMP_DIR/"
-if [ -f "builtin.hpp" ]; then
-   for file in *.hpp; do
-       cp "$file" "$TEMP_DIR/${file}"
-   done
-fi
+[ -d "prompts" ] && cp -r prompts "$TEMP_DIR/"
+for file in *.hpp; do
+    [ -f "$file" ] && cp "$file" "$TEMP_DIR/${file}"
+done
 
-# Validate options
 [ "$USE_DIRECT_CONVERSION" = true ] && [ "$USE_LLM" = false ] && { echo "Error: --direct-conversion requires --llm"; show_usage; }
 
 cd "$TEMP_DIR"
-
-# Activate virtual environment from original directory if it exists
 [ -d "$OLD_PWD/venv" ] && source "$OLD_PWD/venv/bin/activate"
-
-# Print translation mode if set
 [ ! -z "$TRANSLATION_MODE" ] && echo "Using translation mode: $TRANSLATION_MODE with model: $LLM_MODEL"
 
-# Function to validate and fix translation
 validate_translation() {
     local original_file=$1
     local converted_file=$2
@@ -150,84 +140,30 @@ validate_translation() {
 
     echo "Validating translation..."
     
-    # Create validation instruction file
-    VALIDATION_INSTRUCTION_FILE=$(mktemp)
-    echo "Compare these two code files. The first is the original code and the second is its translation to C.
-    Verify that the translation maintains:
-    1. All functional behavior
-    2. All verification properties and assertions
-    3. Proper handling of data structures
-    4. Threading behavior (if present)
-    5. Error handling
-    6. Keep the same logical assertions
-    7. Keep the loop original semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++). Pay attention to the logical conditions 
-    8. Do not fix division by zero
-    If you find any issues, provide the corrected C code that fixes these issues, following the 8 items above.
-    If no issues are found, just respond with 'TRANSLATION_OK'.
-    
-    Focus on correctness and verification properties." > "$VALIDATION_INSTRUCTION_FILE"
-
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
         echo "Validation attempt $attempt of $max_attempts..."
-        
-        # Create a temporary file for potential fixes
         FIXED_CODE_FILE=$(mktemp)
-        
-        # Create a combined file for LLM review
         COMBINED_FILE=$(mktemp)
+        
         echo "=== ORIGINAL CODE ===" > "$COMBINED_FILE"
         cat "$original_file" >> "$COMBINED_FILE"
         echo -e "\n=== TRANSLATED CODE ===" >> "$COMBINED_FILE"
         cat "$converted_file" >> "$COMBINED_FILE"
 
-        # Run validation using aider and capture output
         echo "Sending code to LLM for validation..."
         echo "----------------------------------------"
         aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
             --message-file "$VALIDATION_INSTRUCTION_FILE" \
             --read "$original_file" $converted_file
         success=true
-        # RESPONSE=$(aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
-        
-        # # Display LLM's analysis
-        # echo "LLM Analysis:"
-        # echo "$RESPONSE"
-        # echo "----------------------------------------"
-        
-        # # Save response to fixed code file for processing
-        # echo "$RESPONSE" > "$FIXED_CODE_FILE"
-        
-        # # Check if the validation response indicates the translation is OK
-        # if echo "$RESPONSE" | grep -q "TRANSLATION_OK"; then
-        #     echo "Translation validated successfully!"
-        #     success=true
-        # else
-        #     echo "Issues found in translation. Applying fixes..."
-        #     # Extract the C code from the response and update the converted file
-        #     sed -n '/```c/,/```/p' "$FIXED_CODE_FILE" | sed '1d;$d' > "$converted_file"
-            
-        #     # Verify the fixed code compiles
-        #     if esbmc --parse-tree-only "$converted_file" 2>/dev/null; then
-        #         echo "Fixed code validated successfully!"
-        #         success=true
-        #     else
-        #         echo "Fixed code failed validation"
-        #         if [ $attempt -lt $max_attempts ]; then
-        #             echo "Retrying..."
-        #             sleep 1
-        #         fi
-        #     fi
-        # fi
         
         rm "$FIXED_CODE_FILE"
         ((attempt++))
     done
     
-    rm "$VALIDATION_INSTRUCTION_FILE"
     return $([ "$success" = true ] && echo 0 || echo 1)
 }
 
-# Function to attempt LLM conversion with given instruction
 attempt_llm_conversion() {
     local input_file=$1
     local output_file=$2
@@ -250,10 +186,7 @@ attempt_llm_conversion() {
             success=true
         else
             echo "ESBMC parse tree check failed on attempt $attempt"
-            if [ $attempt -lt $max_attempts ]; then
-                echo "Retrying..."
-                sleep 1
-            fi
+            [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
         fi
         
         ((attempt++))
@@ -262,7 +195,6 @@ attempt_llm_conversion() {
     return $([ "$success" = true ] && echo 0 || echo 1)
 }
 
-# Run shedskin if not using direct conversion
 SHEDSKIN_EXIT=1
 if [ "$USE_DIRECT_CONVERSION" = false ]; then
     echo "Running shedskin on ${FILENAME}.py..."
@@ -273,72 +205,25 @@ fi
 if [ $SHEDSKIN_EXIT -ne 0 ] && [ "$USE_LLM" = true ]; then
     echo "Shedskin conversion failed. Attempting direct Python to C conversion using LLM..."
     
-    # Create instruction file for Python to C conversion
-    PYTHON_INSTRUCTION_FILE=$(mktemp)
-    echo "Convert this Python code to C code that can be verified by ESBMC.
-
-    Guidelines:
-    - Convert Python data structures to C equivalents (lists -> arrays, etc.)
-    - Use fixed-size arrays instead of dynamic allocation when possible
-    - Preserve all verification properties and assertions
-    - Include necessary headers (stdio.h, stdlib.h)
-    - If the code uses threading:
-        * Include pthread.h
-        * Use standard pthread functions for thread creation and synchronization
-        * Ensure thread functions have proper signatures (void* argument, void* return)
-        * Add proper mutex initialization and cleanup
-        * Keep thread count bounded and explicit
-    - Handle Python-specific features appropriately
-    - Do not fix division by zero
-    - For random/arbitrary values, use nondet_uint() (no need to declare it)
-    - Keep assertions as assert() without extra conditions
-    - Keep the loop original semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++). Pay attention to the logical conditions
-    - Add appropriate error handling
-    - Keep variable names similar where possible
-    - Break complex operations into simpler steps
-    - Keep the same logical assertions in the original and converted code
-    - Avoid external library functions" > "$PYTHON_INSTRUCTION_FILE"
-    
     if attempt_llm_conversion "${FILENAME}.py" "${FILENAME}.c" "$PYTHON_INSTRUCTION_FILE"; then
         echo "Successfully converted Python to C directly"
         
         if [ "$VALIDATE_TRANSLATION" = true ]; then
             if ! validate_translation "${FILENAME}.py" "${FILENAME}.c"; then
                 echo "Translation validation failed"
-                rm "$PYTHON_INSTRUCTION_FILE"
                 exit 1
             fi
         fi
         
-        rm "$PYTHON_INSTRUCTION_FILE"
         TARGET_FILE="${FILENAME}.c"
         USE_CPP=false
     else
         echo "Failed to convert Python to C directly"
-        rm "$PYTHON_INSTRUCTION_FILE"
         exit 1
     fi
 elif [ -f "${FILENAME}.cpp" ]; then
     if [ "$USE_LLM" = true ]; then
         echo "Converting C++ to C using aider..."
-        CPP_INSTRUCTION_FILE=$(mktemp)
-        echo "Convert this C++ code to C code, maintaining the same functionality. Remove any C++ specific features and replace them with C equivalents. Keep the verification properties intact.
-        
-        General Guidelines:
-        - The resulting C code has to be verifiable by ESBMC
-        - Avoid dynamic memory allocation when possible
-        - Use fixed-size arrays
-        - Model known results directly instead of computing them
-        - Break complex operations into simple, verifiable steps
-        - Avoid external library functions
-	- Do not fix division by zero
-        - Keep the original loop semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++) Pay attention to the logial conditions in the loop
-	- Do not change the logical conditions
-        - Always include stdio.h and stdlib.h
-        - Do not oversimplify functions
-        - Use nondet_uint() without ESBMC keyword
-	- Keep the same logical assertions
-        - Keep assertions as assert() without extra conditions" > "$CPP_INSTRUCTION_FILE"
         
         if attempt_llm_conversion "${FILENAME}.cpp" "${FILENAME}.c" "$CPP_INSTRUCTION_FILE"; then
             echo "Successfully converted C++ to C"
@@ -346,17 +231,14 @@ elif [ -f "${FILENAME}.cpp" ]; then
             if [ "$VALIDATE_TRANSLATION" = true ]; then
                 if ! validate_translation "${FILENAME}.cpp" "${FILENAME}.c"; then
                     echo "Translation validation failed"
-                    rm "$CPP_INSTRUCTION_FILE"
                     exit 1
                 fi
             fi
             
-            rm "$CPP_INSTRUCTION_FILE"
             TARGET_FILE="${FILENAME}.c"
             USE_CPP=false
         else
             echo "Failed to convert C++ to C"
-            rm "$CPP_INSTRUCTION_FILE"
             exit 1
         fi
     else
@@ -368,7 +250,6 @@ else
     exit 1
 fi
 
-# Check for threading
 echo "Checking for threading..."
 THREAD_OPTIONS=""
 if check_threading "$TARGET_FILE"; then
@@ -378,12 +259,10 @@ else
     echo "No threading detected"
 fi
 
-# Get GCC lib path for include path
 GCC_LIB_PATH=$(dirname $(gcc -print-libgcc-file-name))
 ESBMC_EXTRA=""
 [ -d "$GCC_LIB_PATH/include" ] && ESBMC_EXTRA=" -I$GCC_LIB_PATH/include"
 
-# Construct the ESBMC command once
 ESBMC_CMD="esbmc $([ "$USE_CPP" = true ] && echo '--std c++17') --segfault-handler \
     -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
     $TARGET_FILE --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets --compact-trace $THREAD_OPTIONS $ESBMC_EXTRA_OPTS"
