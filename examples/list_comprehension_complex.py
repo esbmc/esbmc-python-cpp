@@ -28,7 +28,6 @@ def main():
     actions = [Down(), Up()]
     while True:
         enabled_actions = list_comp(actions, lambda a: a.pre())
-        assert 0 == 1
         if enabled_actions:
             length = len(enabled_actions)
             action_nr = random.randint(0, length-1)

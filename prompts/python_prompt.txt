@@ -4,8 +4,6 @@ The goal is to verify that this code is working correctly with ESBMC. Hence keep
 it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it, 
 and let it show in the code as an assertion error on the bad code, rather than a compile error. If there is a logical error, and it wont be visible, make it an assertion failure.
 
-
-
 Guidelines:
 - Convert Python data structures to C equivalents (lists -> arrays, etc.)
 - Use fixed-size arrays instead of dynamic allocation when possible
@@ -26,5 +24,8 @@ Guidelines:
 - Keep the same logical assertions in the original and converted code
 - Avoid external library functions
 - You can convert nondet_uint(), nondet_bool(), (no need to declare it, ESBMC understands these), 
+- Do not convert random.randint(0, length-1) to nondet, use the random function directly, do not Using nondet_uint() for verification if the value range is given                                                                                                                                         
+
+
 
 

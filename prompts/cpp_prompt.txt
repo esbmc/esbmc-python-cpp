@@ -5,7 +5,6 @@ The goal is to verify that this code is working correctly with ESBMC. Hence keep
 it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it, 
 and let it show in the code as an assertion error on the bad code. If there is a logical error, and it wont be visible, make it an assertion failure.
 
-
 General Guidelines:
 - The resulting C code has to be verifiable by ESBMC
 - Avoid dynamic memory allocation when possible
@@ -22,3 +21,5 @@ General Guidelines:
 - Keep the same logical assertions
 - Keep assertions as assert() without extra conditions
 - You can convert nondet_uint(), nondet_bool(), (no need to declare it, ESBMC understands these), 
+- Do not convert random.randint(0, length-1) to nondet, use the random function directly, do not Using nondet_uint() for verification if the value range is given                                                                                                                                         
+
