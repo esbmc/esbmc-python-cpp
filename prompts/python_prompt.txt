@@ -2,7 +2,7 @@ Convert this Python code to C code that can be verified by ESBMC.
 
 The goal is to verify that this code is working correctly with ESBMC. Hence keep all the logic errors, 
 it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it, 
-and let it show in the code as an assertion error on the bad code, rather than a compile error.
+and let it show in the code as an assertion error on the bad code, rather than a compile error. If there is a logical error, and it wont be visible, make it an assertion failure.
 
 
 
@@ -18,8 +18,6 @@ Guidelines:
     * Add proper mutex initialization and cleanup
     * Keep thread count bounded and explicit
 - Handle Python-specific features appropriately
-- Do not fix division by zero
-- For random/arbitrary values, use nondet_uint() (no need to declare it)
 - Keep assertions as assert() without extra conditions
 - Keep the loop original semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++). Pay attention to the logical conditions
 - Add appropriate error handling

@@ -3,7 +3,7 @@ Keep the verification properties intact.
 
 The goal is to verify that this code is working correctly with ESBMC. Hence keep all the logic errors, 
 it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it, 
-and let it show in the code as an assertion error on the bad code.
+and let it show in the code as an assertion error on the bad code. If there is a logical error, and it wont be visible, make it an assertion failure.
 
 
 General Guidelines:
