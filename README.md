@@ -24,3 +24,7 @@ Recommended options:
 1. ```./verify.sh --llm examples/example_deadlock_bug.py``` (Using the expensive Claude Antrophic LLM)
 1. ```./verify.sh --llm --model <custom model including locally deployed LLMs> examples/example_deadlock_bug.py```
 
+Validate code translation, will validate the code translation, and adjust if not translated ideally:
+
+1. ````./verify.sh --llm examples/example_15_dictionary.py --validate-translation````
+
