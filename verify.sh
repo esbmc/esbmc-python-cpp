@@ -328,7 +328,6 @@ elif [ -f "${FILENAME}.cpp" ]; then
         - Use fixed-size arrays
         - Model known results directly instead of computing them
         - Break complex operations into simple, verifiable steps
-        - Use clear, simple assertions
         - Avoid external library functions
         - Keep the original loop semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++) Pay attention to the logial conditions in the loop
 	- Do not change the logical conditions
