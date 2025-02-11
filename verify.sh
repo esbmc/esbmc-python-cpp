@@ -4,6 +4,7 @@ USE_DOCKER=false
 USE_LLM=false
 USE_DIRECT_CONVERSION=false
 VALIDATE_TRANSLATION=false
+EXPLAIN_VIOLATION=false
 DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
@@ -15,9 +16,10 @@ TRANSLATION_MODE=""
 PYTHON_INSTRUCTION_FILE="prompts/python_prompt.txt"
 CPP_INSTRUCTION_FILE="prompts/cpp_prompt.txt"
 VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
+EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
 
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] <filename>"
+  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--explain] <filename>"
   echo "Options:"
   echo "  --docker              Run ESBMC in Docker container"
   echo "  --llm                Use LLM to convert Python/C++ to C before verification"
@@ -30,6 +32,7 @@ show_usage() {
   echo "                        fast: Use Gemini for quick translations"
   echo "                        reasoning: Use DeepSeek for complex translations"
   echo "  --validate-translation Validate and fix translated code"
+  echo "  --explain            Explain ESBMC violations in terms of Python code"
   exit 1
 }
 
@@ -56,6 +59,7 @@ while [[ $# -gt 0 ]]; do
        --llm) USE_LLM=true; shift ;;
        --direct-conversion) USE_DIRECT_CONVERSION=true; shift ;;
        --validate-translation) VALIDATE_TRANSLATION=true; shift ;;
+       --explain) EXPLAIN_VIOLATION=true; shift ;;
        --translate)
            [ -z "$2" ] && { echo "Error: --translate requires mode (fast|reasoning)"; show_usage; }
            case "$2" in
@@ -113,8 +117,9 @@ TEMP_DIR=$(mktemp -d)
 echo "Working directory: $TEMP_DIR"
 OLD_PWD=$(pwd)
 
-# Check if prompts directory exists
+# Check if prompts directory exists and contains required files
 [ ! -d "prompts" ] && { echo "Error: prompts directory not found"; exit 1; }
+[ ! -f "prompts/explanation_prompt.txt" ] && { echo "Error: explanation_prompt.txt not found in prompts directory"; exit 1; }
 
 # Copy import files and prompts
 cp -r module_import/* "$TEMP_DIR/" 2>/dev/null
@@ -154,7 +159,7 @@ validate_translation() {
         echo "----------------------------------------"
         aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
             --message-file "$VALIDATION_INSTRUCTION_FILE" \
-            --read "$original_file" $converted_file
+            --read "$original_file" "$converted_file"
         success=true
         
         rm "$FIXED_CODE_FILE"
@@ -162,6 +167,33 @@ validate_translation() {
     done
     
     return $([ "$success" = true ] && echo 0 || echo 1)
+}
+
+explain_violation() {
+    local python_file=$1
+    local c_file=$2
+    local violation_output=$3
+    local temp_file=$(mktemp)
+    
+    echo "Analyzing ESBMC violation..."
+    
+    # Create a combined file with original code, translated code, and violation
+    echo "=== ORIGINAL PYTHON CODE ===" > "$temp_file"
+    cat "$python_file" >> "$temp_file"
+    echo -e "\n=== TRANSLATED C CODE ===" >> "$temp_file"
+    cat "$c_file" >> "$temp_file"
+    echo -e "\n=== ESBMC VIOLATION ===" >> "$temp_file"
+    echo "$violation_output" >> "$temp_file"
+    
+    echo "Requesting explanation from LLM..."
+    echo "----------------------------------------"
+    
+    # Call aider to get explanation
+    aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+        --message-file "$EXPLANATION_INSTRUCTION_FILE" \
+        --read "$temp_file"
+    
+    rm "$temp_file"
 }
 
 attempt_llm_conversion() {
@@ -269,27 +301,37 @@ ESBMC_CMD="esbmc $([ "$USE_CPP" = true ] && echo '--std c++17') --segfault-handl
 
 print_esbmc_cmd "$ESBMC_CMD"
 
+# Capture ESBMC output for potential explanation
+ESBMC_OUTPUT_FILE=$(mktemp)
+
 echo "Running ESBMC..."
 if [ "$USE_DOCKER" = true ]; then
     if [ ! -z "$CONTAINER_ID" ]; then
         docker exec "$CONTAINER_ID" mkdir -p /workspace
         docker cp . "$CONTAINER_ID":/workspace/
-        docker exec -w /workspace "$CONTAINER_ID" bash -c "$ESBMC_CMD"
-        ESBMC_EXIT=$?
+        docker exec -w /workspace "$CONTAINER_ID" bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
+        ESBMC_EXIT=${PIPESTATUS[0]}
         docker exec "$CONTAINER_ID" rm -rf /workspace/*
     else
         docker run --rm \
             -v "$(pwd)":/workspace \
             -w /workspace \
             "$DOCKER_IMAGE" \
-            bash -c "$ESBMC_CMD"
-        ESBMC_EXIT=$?
+            bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
+        ESBMC_EXIT=${PIPESTATUS[0]}
     fi
 else
-    eval "$ESBMC_CMD"
-    ESBMC_EXIT=$?
+    eval "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
+    ESBMC_EXIT=${PIPESTATUS[0]}
 fi
 
+# If verification failed and explanation was requested, explain the violation
+if [ $ESBMC_EXIT -ne 0 ] && [ "$EXPLAIN_VIOLATION" = true ]; then
+    echo -e "\nAnalyzing verification failure..."
+    explain_violation "${FILENAME}.py" "$TARGET_FILE" "$(cat $ESBMC_OUTPUT_FILE)"
+fi
+
+rm "$ESBMC_OUTPUT_FILE"
 cd "$OLD_PWD"
 echo "Temporary files available in: $TEMP_DIR"
 exit $ESBMC_EXIT

@@ -17,7 +17,7 @@ Guidelines:
     * Keep thread count bounded and explicit
 - Handle Python-specific features appropriately
 - Keep assertions as assert() without extra conditions
-- Keep the loop original semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++). Pay attention to the logical conditions
+- Keep the loop original semantics.
 - Add appropriate error handling
 - Keep variable names similar where possible
 - Break complex operations into simpler steps

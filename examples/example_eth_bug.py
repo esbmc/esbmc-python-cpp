@@ -11,7 +11,7 @@ def integer_squareroot(n):
         y = (x + n // x) // 2
     return x
 
-n = esbmc.nondet_uint64()
+n = esbmc.nondet_uint()
 # This also triggers the bug and is good for testing
 x = integer_squareroot(n)
 # x = integer_squareroot(n)
