@@ -1,0 +1,7 @@
+# Aider Configuration
+edit-format: diff
+stream: True
+editor-edit-format: editor-diff
+extra-params:
+  max_tokens: 160000
+  temperature: 0.0

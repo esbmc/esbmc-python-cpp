@@ -98,5 +98,6 @@ source venv/bin/activate
 
 echo "Installing Python requirements..."
 pip install -r requirements.txt
-pipx install aider-chat
+#pipx install aider-chat
+pip install --upgrade --upgrade-strategy only-if-needed git+https://github.com/Aider-AI/aider.git
 echo "Installation completed successfully!"
