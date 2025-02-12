@@ -1,7 +1,7 @@
 #!/bin/bash
 # Default values
 USE_DOCKER=false
-USE_LLM=true
+USE_LLM=false
 USE_DIRECT_CONVERSION=false
 VALIDATE_TRANSLATION=false
 EXPLAIN_VIOLATION=false
