@@ -1,7 +1,7 @@
 #!/bin/bash
 # Default values
 USE_DOCKER=false
-USE_LLM=false
+USE_LLM=true
 USE_DIRECT_CONVERSION=false
 VALIDATE_TRANSLATION=false
 EXPLAIN_VIOLATION=false
@@ -205,15 +205,26 @@ attempt_llm_conversion() {
     local success=false
 
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
+        local CMDRUN
         echo "Attempt $attempt of $max_attempts to generate valid code..."
         
         if [ $attempt -eq 1 ]; then
             aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
         else
-            aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test --test-cmd "esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
+            if [ "$USE_DOCKER" = true ]; then
+                aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test --test-cmd " docker run --rm -v "$(pwd)":/workspace -w /workspace '$DOCKER_IMAGE' esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
+            else
+                aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test --test-cmd " esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
+            fi
         fi
-        
-        if esbmc --parse-tree-only "$output_file" 2>/dev/null; then
+
+        if [ "$USE_DOCKER" = true ]; then
+            CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
+        else
+            CMDRUN="esbmc"
+        fi
+
+        if  $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
             echo "Successfully generated valid code on attempt $attempt"
             success=true
         else
