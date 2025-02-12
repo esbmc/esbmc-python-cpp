@@ -5,6 +5,11 @@ The goal is to verify that this code is working correctly with ESBMC. Hence keep
 it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it, 
 and let it show in the code as an assertion error on the bad code. If there is a logical error, and it wont be visible, make it an assertion failure.
 
+The code was originally python code before C++.
+Avoid using function pointers. This means do not pass in pointers to ANY param in ANY function.
+Even if code was translated like that, ignore that code.
+Do not make it multi-threaded code unless there is threading in the code.
+
 General Guidelines:
 - The resulting C code has to be verifiable by ESBMC
 - Avoid dynamic memory allocation when possible
