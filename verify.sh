@@ -5,6 +5,7 @@ USE_LLM=false
 USE_DIRECT_CONVERSION=false
 VALIDATE_TRANSLATION=false
 EXPLAIN_VIOLATION=false
+FAST_MODE=false
 DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
@@ -19,7 +20,7 @@ VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
 EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
 
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--explain] <filename>"
+  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--explain] [--fast] <filename>"
   echo "Options:"
   echo "  --docker              Run ESBMC in Docker container"
   echo "  --llm                Use LLM to convert Python/C++ to C before verification"
@@ -33,6 +34,7 @@ show_usage() {
   echo "                        reasoning: Use DeepSeek for complex translations"
   echo "  --validate-translation Validate and fix translated code"
   echo "  --explain            Explain ESBMC violations in terms of Python code"
+  echo "  --fast               Enable fast mode (adds --unwind 10 --no-unwinding-assertions)"
   exit 1
 }
 
@@ -60,6 +62,7 @@ while [[ $# -gt 0 ]]; do
        --direct-conversion) USE_DIRECT_CONVERSION=true; shift ;;
        --validate-translation) VALIDATE_TRANSLATION=true; shift ;;
        --explain) EXPLAIN_VIOLATION=true; shift ;;
+       --fast) FAST_MODE=true; shift ;;
        --translate)
            [ -z "$2" ] && { echo "Error: --translate requires mode (fast|reasoning)"; show_usage; }
            case "$2" in
@@ -305,6 +308,11 @@ fi
 GCC_LIB_PATH=$(dirname $(gcc -print-libgcc-file-name))
 ESBMC_EXTRA=""
 [ -d "$GCC_LIB_PATH/include" ] && ESBMC_EXTRA=" -I$GCC_LIB_PATH/include"
+
+# Determine additional ESBMC options for fast mode
+if [ "$FAST_MODE" = true ]; then
+    ESBMC_EXTRA_OPTS="$ESBMC_EXTRA_OPTS --unwind 10 --no-unwinding-assertions"
+fi
 
 ESBMC_CMD="esbmc $([ "$USE_CPP" = true ] && echo '--std c++17') --segfault-handler \
     -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
