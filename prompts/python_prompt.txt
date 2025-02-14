@@ -30,6 +30,9 @@ Guidelines:
 - Avoid external library functions
 - You can convert nondet_uint(), nondet_bool(), (no need to declare it, ESBMC understands these), 
 - Do not convert random.randint(0, length-1) to nondet, use the random function directly, do not Using nondet_uint() for verification if the value range is given                                                                                                                                         
+- If the original code you are converting handles exceptions, make sure the same exceptions are caught in the C version too. Follow the same logic in python if an exception is caught.
+- If the code coming from python silently handles the exception, you should also handle it silently. In this case the assertion should not be raised. Handle the assertion with just a print statement in this case. A good example is when there is a pass command in an exception block.
+- If the code coming from python raises an exception, you should also raise an exception.
 
 
 
