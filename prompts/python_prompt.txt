@@ -1,7 +1,7 @@
-Convert this Python code to C code that can be verified by ESBMC.
+Convert this Python code to C code that can be verified by ESBMC. Translate ALL the code, do not only partially translate it. Make sure all methods are translated.
 
-The goal is to verify that this code is working correctly with ESBMC. Hence keep all the logic errors, 
-it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it, 
+The goal is to verify that this code is working correctly with ESBMC. Hence keep all the logic errors,
+it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it,
 and let it show in the code as an assertion error on the bad code, rather than a compile error. If there is a logical error, and it wont be visible, make it an assertion failure.
 
 The code was originally python code before C++.
@@ -28,8 +28,8 @@ Guidelines:
 - Break complex operations into simpler steps
 - Keep the same logical assertions in the original and converted code
 - Avoid external library functions
-- You can convert nondet_uint(), nondet_bool(), (no need to declare it, ESBMC understands these), 
-- Do not convert random.randint(0, length-1) to nondet, use the random function directly, do not Using nondet_uint() for verification if the value range is given                                                                                                                                         
+- You can convert nondet_uint(), nondet_bool(), (no need to declare it, ESBMC understands these),
+- Do not convert random.randint(0, length-1) to nondet, use the random function directly, do not Using nondet_uint() for verification if the value range is given
 - If the original code you are converting handles exceptions, make sure the same exceptions are caught in the C version too. Follow the same logic in python if an exception is caught.
 - If the code coming from python silently handles the exception, you should also handle it silently. In this case the assertion should not be raised. Handle the assertion with just a print statement in this case. A good example is when there is a pass command in an exception block.
 - If the code coming from python raises an exception, you should also raise an exception.
