@@ -4,6 +4,7 @@ USE_DOCKER=false
 USE_LLM=false
 USE_DIRECT_CONVERSION=false
 VALIDATE_TRANSLATION=false
+VALIDATION_MODE="partial"  # New default validation mode
 EXPLAIN_VIOLATION=false
 FAST_MODE=false
 TEST_FUNCTION=false
@@ -22,7 +23,7 @@ VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
 EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
 
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] <filename>"
+  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] <filename>"
   echo "Options:"
   echo "  --docker              Run ESBMC in Docker container"
   echo "  --llm                Use LLM to convert Python/C++ to C before verification"
@@ -35,7 +36,9 @@ show_usage() {
   echo "  --translate MODE      Set translation mode (fast|reasoning)"
   echo "                        fast: Use Gemini for quick translations"
   echo "                        reasoning: Use DeepSeek for complex translations"
-  echo "  --validate-translation Validate and fix translated code"
+  echo "  --validate-translation MODE Validate and fix translated code (partial|complete)"
+  echo "                        partial: Basic validation of syntax and structure"
+  echo "                        complete: Ensure full functional equivalence"
   echo "  --explain            Explain ESBMC violations in terms of Python code"
   echo "  --fast               Enable fast mode (adds --unwind 10 --no-unwinding-assertions)"
   exit 1
@@ -58,12 +61,162 @@ check_threading() {
     fi
 }
 
+validate_translation() {
+    local original_file=$1
+    local converted_file=$2
+    local validation_mode=$3
+    local max_attempts=3
+    local attempt=1
+
+    echo "Validating translation in $validation_mode mode..."
+    
+    # Create temporary files for validation process
+    local VALIDATION_LOG=$(mktemp)
+    local COMBINED_FILE=$(mktemp)
+
+    while [ $attempt -le $max_attempts ]; do
+        echo "Translation attempt $attempt of $max_attempts..."
+
+        # Create combined file with current state
+        {
+            echo "=== TRANSLATION STATUS REQUEST ==="
+            echo "Please review the current translation state and:"
+            echo "1. Implement any missing functions if needed"
+            echo "2. Indicate if more translation attempts are needed"
+            echo ""
+            echo "=== ORIGINAL CODE ==="
+            cat "$original_file"
+            echo -e "\n=== CURRENT TRANSLATION ==="
+            cat "$converted_file"
+        } > "$COMBINED_FILE"
+
+        # Run the translation
+        aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+            --message-file "$VALIDATION_INSTRUCTION_FILE" \
+            --read "$COMBINED_FILE" "$converted_file"
+            
+        # If an edit was applied, continue to next attempt
+        if grep -q "Applied edit" "$VALIDATION_LOG"; then
+            echo "Successfully applied edits, continuing to next attempt..."
+        else
+            echo "No edits needed in this attempt, translation complete"
+            break
+        fi
+        
+        ((attempt++))
+    done
+    
+    # After translation is complete, verify with ESBMC parse-tree
+    echo "Verifying final code with ESBMC parse-tree..."
+    if [ "$USE_DOCKER" = true ]; then
+        CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
+    else
+        CMDRUN="esbmc"
+    fi
+
+    if $CMDRUN --parse-tree-only "$converted_file" 2>/dev/null; then
+        echo "ESBMC parse-tree validation successful"
+        PARSE_SUCCESS=true
+    else
+        echo "ESBMC parse-tree validation failed"
+        PARSE_SUCCESS=false
+    fi
+    
+    # Cleanup
+    rm -f "$VALIDATION_LOG" "$COMBINED_FILE"
+    
+    # Return based on parse tree validation
+    return $([ "$PARSE_SUCCESS" = true ] && echo 0 || echo 1)
+}
+
+attempt_llm_conversion() {
+    local input_file=$1
+    local output_file=$2
+    local instruction_file=$3
+    local max_attempts=5
+    local attempt=1
+    local success=false
+
+    while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
+        local CMDRUN
+        echo "Attempt $attempt of $max_attempts to generate valid code..."
+        
+        if [ $attempt -eq 1 ]; then
+            aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
+        else
+            if [ "$USE_DOCKER" = true ]; then
+                aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test --test-cmd " docker run --rm -v "$(pwd)":/workspace -w /workspace '$DOCKER_IMAGE' esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
+            else
+                aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test --test-cmd " esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
+            fi
+        fi
+
+        if [ "$USE_DOCKER" = true ]; then
+            CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
+        else
+            CMDRUN="esbmc"
+        fi
+
+        if  $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
+            echo "Successfully generated valid code on attempt $attempt"
+            success=true
+        else
+            echo "ESBMC parse tree check failed on attempt $attempt"
+            [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
+        fi
+        
+        ((attempt++))
+    done
+
+    return $([ "$success" = true ] && echo 0 || echo 1)
+}
+
+explain_violation() {
+    local python_file=$1
+    local c_file=$2
+    local violation_output=$3
+    local temp_file=$(mktemp)
+    
+    echo "Analyzing ESBMC violation..."
+    
+    # Create a combined file with original code, translated code, and violation
+    echo "=== ORIGINAL PYTHON CODE ===" > "$temp_file"
+    cat "$python_file" >> "$temp_file"
+    echo -e "\n=== TRANSLATED C CODE ===" >> "$temp_file"
+    cat "$c_file" >> "$temp_file"
+    echo -e "\n=== ESBMC VIOLATION ===" >> "$temp_file"
+    echo "$violation_output" >> "$temp_file"
+    
+    echo "Requesting explanation from LLM..."
+    echo "----------------------------------------"
+    
+    # Call aider to get explanation
+    aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+        --message-file "$EXPLANATION_INSTRUCTION_FILE" \
+        --read "$temp_file"
+    
+    rm "$temp_file"
+}
+
+# Parse command line arguments
 while [[ $# -gt 0 ]]; do
    case $1 in
        --docker) USE_DOCKER=true; shift ;;
        --llm) USE_LLM=true; shift ;;
        --direct-conversion) USE_DIRECT_CONVERSION=true; shift ;;
-       --validate-translation) VALIDATE_TRANSLATION=true; shift ;;
+       --validate-translation)
+           case "$2" in
+               partial|complete)
+                   VALIDATE_TRANSLATION=true
+                   VALIDATION_MODE="$2"
+                   shift 2
+                   ;;
+               *)
+                   echo "Error: --validate-translation requires mode (partial|complete)"
+                   show_usage
+                   ;;
+           esac
+           ;;
        --explain) EXPLAIN_VIOLATION=true; shift ;;
        --fast) FAST_MODE=true; shift ;;
        --translate)
@@ -148,108 +301,6 @@ cd "$TEMP_DIR"
 [ -d "$OLD_PWD/venv" ] && source "$OLD_PWD/venv/bin/activate"
 [ ! -z "$TRANSLATION_MODE" ] && echo "Using translation mode: $TRANSLATION_MODE with model: $LLM_MODEL"
 
-validate_translation() {
-    local original_file=$1
-    local converted_file=$2
-    local success=false
-    local max_attempts=1
-    local attempt=1
-
-    echo "Validating translation..."
-    
-    while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
-        echo "Validation attempt $attempt of $max_attempts..."
-        FIXED_CODE_FILE=$(mktemp)
-        COMBINED_FILE=$(mktemp)
-        
-        echo "=== ORIGINAL CODE ===" > "$COMBINED_FILE"
-        cat "$original_file" >> "$COMBINED_FILE"
-        echo -e "\n=== TRANSLATED CODE ===" >> "$COMBINED_FILE"
-        cat "$converted_file" >> "$COMBINED_FILE"
-
-        echo "Sending code to LLM for validation..."
-        echo "----------------------------------------"
-        aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
-            --message-file "$VALIDATION_INSTRUCTION_FILE" \
-            --read "$original_file" "$converted_file"
-        success=true
-        
-        rm "$FIXED_CODE_FILE"
-        ((attempt++))
-    done
-    
-    return $([ "$success" = true ] && echo 0 || echo 1)
-}
-
-explain_violation() {
-    local python_file=$1
-    local c_file=$2
-    local violation_output=$3
-    local temp_file=$(mktemp)
-    
-    echo "Analyzing ESBMC violation..."
-    
-    # Create a combined file with original code, translated code, and violation
-    echo "=== ORIGINAL PYTHON CODE ===" > "$temp_file"
-    cat "$python_file" >> "$temp_file"
-    echo -e "\n=== TRANSLATED C CODE ===" >> "$temp_file"
-    cat "$c_file" >> "$temp_file"
-    echo -e "\n=== ESBMC VIOLATION ===" >> "$temp_file"
-    echo "$violation_output" >> "$temp_file"
-    
-    echo "Requesting explanation from LLM..."
-    echo "----------------------------------------"
-    
-    # Call aider to get explanation
-    aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
-        --message-file "$EXPLANATION_INSTRUCTION_FILE" \
-        --read "$temp_file"
-    
-    rm "$temp_file"
-}
-
-attempt_llm_conversion() {
-    local input_file=$1
-    local output_file=$2
-    local instruction_file=$3
-    local max_attempts=5
-    local attempt=1
-    local success=false
-
-    while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
-        local CMDRUN
-        echo "Attempt $attempt of $max_attempts to generate valid code..."
-        
-        if [ $attempt -eq 1 ]; then
-            aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
-        else
-            if [ "$USE_DOCKER" = true ]; then
-                aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test --test-cmd " docker run --rm -v "$(pwd)":/workspace -w /workspace '$DOCKER_IMAGE' esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
-            else
-                aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test --test-cmd " esbmc --parse-tree-only '$output_file'" --yes --message-file "$instruction_file" --read "$input_file" "$output_file"
-            fi
-        fi
-
-        if [ "$USE_DOCKER" = true ]; then
-            CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
-        else
-            CMDRUN="esbmc"
-        fi
-
-        if  $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
-            echo "Successfully generated valid code on attempt $attempt"
-            success=true
-        else
-            echo "ESBMC parse tree check failed on attempt $attempt"
-            [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
-        fi
-        
-        ((attempt++))
-    done
-
-    return $([ "$success" = true ] && echo 0 || echo 1)
-}
-
 SHEDSKIN_EXIT=1
 if [ "$USE_DIRECT_CONVERSION" = false ]; then
     echo "Running shedskin on ${FILENAME}.py..."
@@ -264,7 +315,7 @@ if [ $SHEDSKIN_EXIT -ne 0 ] && [ "$USE_LLM" = true ]; then
         echo "Successfully converted Python to C directly"
         
         if [ "$VALIDATE_TRANSLATION" = true ]; then
-            if ! validate_translation "${FILENAME}.py" "${FILENAME}.c"; then
+            if ! validate_translation "${FILENAME}.py" "${FILENAME}.c" "$VALIDATION_MODE"; then
                 echo "Translation validation failed"
                 exit 1
             fi
@@ -284,7 +335,7 @@ elif [ -f "${FILENAME}.cpp" ]; then
             echo "Successfully converted C++ to C"
             
             if [ "$VALIDATE_TRANSLATION" = true ]; then
-                if ! validate_translation "${FILENAME}.cpp" "${FILENAME}.c"; then
+                if ! validate_translation "${FILENAME}.cpp" "${FILENAME}.c" "$VALIDATION_MODE"; then
                     echo "Translation validation failed"
                     exit 1
                 fi

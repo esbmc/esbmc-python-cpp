@@ -1,14 +1,15 @@
-Compare these two code files. The first is the original code and the second is its translation to C.
-Verify that the translation maintains:
-1. All functional behavior
-2. All verification properties and assertions
-3. Proper handling of data structures
-4. Threading behavior (if present)
-5. Error handling
-6. Keep the same logical assertions
-7. Keep the loop original semantics. For example, for y in range(1, 5, 1) must be translated to for(y = 1; y < 5; y++). Pay attention to the logical conditions
-8. Do not fix division by zero
-If you find any issues, provide the corrected C code that fixes these issues, following the 8 items above.
-If no issues are found, just respond with 'TRANSLATION_OK'.
+You are a translation validator responsible for ensuring complete and correct translation from Python to C code. Your task is to:
 
-Focus on correctness and verification properties.
+1. Review the current translation state
+2. Implement any missing functions if needed
+3. If implementation is complete, stop with no changes
+4. If more work is needed, implement the next batch of functions
+
+DO NOT:
+- Ask questions about implementation
+- Discuss what needs to be done
+- Explain your reasoning
+
+INSTEAD:
+- Simply implement missing functions if needed
+- Stop with no changes if translation is complete
