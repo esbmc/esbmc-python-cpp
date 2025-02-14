@@ -6,11 +6,13 @@ USE_DIRECT_CONVERSION=false
 VALIDATE_TRANSLATION=false
 EXPLAIN_VIOLATION=false
 FAST_MODE=false
+TEST_FUNCTION=false
 DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
 ESBMC_EXTRA_OPTS=""
 LLM_MODEL="openrouter/anthropic/claude-3.5-sonnet"
+TEST_FUNCTION_NAME=""
 TRANSLATION_MODE=""
 
 # Prompt file paths
@@ -20,7 +22,7 @@ VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
 EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
 
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--explain] [--fast] <filename>"
+  echo "Usage: ./verify.sh [--docker] [--llm] [--direct-conversion] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] <filename>"
   echo "Options:"
   echo "  --docker              Run ESBMC in Docker container"
   echo "  --llm                Use LLM to convert Python/C++ to C before verification"
@@ -28,6 +30,7 @@ show_usage() {
   echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
   echo "  --container ID        Specify existing container ID"
   echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
+  echo "  --function FUNCTION_NAME   Test function mode (adds --function)"
   echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/anthropic/claude-3.5-sonnet)"
   echo "  --translate MODE      Set translation mode (fast|reasoning)"
   echo "                        fast: Use Gemini for quick translations"
@@ -91,6 +94,12 @@ while [[ $# -gt 0 ]]; do
        --model)
            [ -z "$2" ] && { echo "Error: --model requires a model name"; show_usage; }
            LLM_MODEL="$2"
+           shift 2
+           ;;
+       --function)
+           [ -z "$2" ] && { echo "Error: --function requires a function name"; show_usage; }
+           TEST_FUNCTION_NAME="$2"
+           TEST_FUNCTION=true
            shift 2
            ;;
        --image)
@@ -312,6 +321,10 @@ ESBMC_EXTRA=""
 # Determine additional ESBMC options for fast mode
 if [ "$FAST_MODE" = true ]; then
     ESBMC_EXTRA_OPTS="$ESBMC_EXTRA_OPTS --unwind 10 --no-unwinding-assertions"
+fi
+
+if [ "$TEST_FUNCTION" = true ]; then
+    ESBMC_EXTRA_OPTS="$ESBMC_EXTRA_OPTS --function $TEST_FUNCTION_NAME"
 fi
 
 ESBMC_CMD="esbmc $([ "$USE_CPP" = true ] && echo '--std c++17') --segfault-handler \
