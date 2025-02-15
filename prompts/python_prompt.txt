@@ -1,39 +1,120 @@
-Convert this Python code to C code that can be verified by ESBMC. Translate ALL the code, do not only partially translate it. Make sure all methods are translated.
+Convert this Python code to C code that can be verified by ESBMC. The conversion must be complete and systematic, following these strict requirements:
 
-The goal is to verify that this code is working correctly with ESBMC. Hence keep all the logic errors,
-it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it,
-and let it show in the code as an assertion error on the bad code, rather than a compile error. If there is a logical error, and it wont be visible, make it an assertion failure.
-
-The code was originally python code before C++.
-Avoid using function pointers. This means do not pass in pointers to ANY param in ANY function.
-Even if code was translated like that, ignore that code.
-Do not make it multi-threaded code unless there is threading in the code.
-
-Guidelines:
-- Convert Python data structures to C equivalents (lists -> arrays, etc.)
-- Use fixed-size arrays instead of dynamic allocation when possible
+1. Code Structure and Completeness:
+- Convert ALL code, including every class, method, and function
+- Maintain the exact same logic and error conditions as the original code
 - Preserve all verification properties and assertions
-- Include necessary headers (stdio.h, stdlib.h)
-- If the code uses threading:
-    * Include pthread.h
-    * Use standard pthread functions
-    * Ensure thread functions have proper signatures (void* argument, void* return)
-    * Add proper mutex initialization and cleanup
-    * Keep thread count bounded and explicit
-- Handle Python-specific features appropriately
-- Keep assertions as assert() without extra conditions
-- Keep the loop original semantics.
-- Add appropriate error handling
-- Keep variable names similar where possible
-- Break complex operations into simpler steps
-- Keep the same logical assertions in the original and converted code
-- Avoid external library functions
-- You can convert nondet_uint(), nondet_bool(), (no need to declare it, ESBMC understands these),
-- Do not convert random.randint(0, length-1) to nondet, use the random function directly, do not Using nondet_uint() for verification if the value range is given
-- If the original code you are converting handles exceptions, make sure the same exceptions are caught in the C version too. Follow the same logic in python if an exception is caught.
-- If the code coming from python silently handles the exception, you should also handle it silently. In this case the assertion should not be raised. Handle the assertion with just a print statement in this case. A good example is when there is a pass command in an exception block.
-- If the code coming from python raises an exception, you should also raise an exception.
+- Convert all class methods to C functions with appropriate struct handling
+- Keep the same file structure and organization
+- All functions must be implemented, even if they are not used
 
+2. Error Handling and Assertions:
+- Preserve all logical errors exactly as they appear in the Python code
+- Do not fix or improve error conditions - they should be converted as-is
+- Convert Python exceptions to C assertions or error codes
+- For silent exception handling in Python (using 'pass'), use equivalent silent handling in C
+- For raised exceptions in Python, use assertions in C
+- When Python code has exception handling, implement the same error flow in C
 
+3. Data Structures and Memory:
+- Use fixed-size arrays instead of dynamic allocation where possible
+- Define appropriate size constants for arrays (e.g., MAX_LENGTH)
+- Convert Python data structures to C equivalents:
+  * lists -> fixed-size arrays
+  * dictionaries -> structs with key-value pairs
+  * classes -> structs with associated functions
+  * strings -> char arrays with fixed maximum size
+- Avoid using malloc/free when fixed-size alternatives are possible
+- When dynamic allocation is necessary, ensure proper memory management
 
+4. Function Specifications:
+- Do not use function pointers
+- All function parameters should be passed by value or as direct pointers
+- Maintain original function signatures as closely as possible while adapting to C
+- Preserve const correctness where appropriate
 
+5. Error Detection:
+- Add parameter validation at the start of each function
+- Use assert() for validation without additional conditions
+- Keep assertions semantically equivalent to Python's error checking
+
+6. Special Features Handling:
+- For threading code:
+  * Include <pthread.h>
+  * Use standard pthread functions
+  * Maintain thread count bounds
+  * Implement proper mutex handling
+- For Python built-ins:
+  * Convert range() to for loops with explicit bounds
+  * Convert list comprehensions to explicit loops
+  * Convert map/filter to explicit loops
+  * Implement equivalent string handling functions
+
+7. Random Number Handling:
+- Keep random number generation as-is, don't convert to nondet
+- Use random() for direct random number generation
+- Maintain original random number ranges
+
+8. Verification Properties:
+- Add ESBMC-specific annotations where needed
+- Keep loop bounds explicit and verifiable
+- Maintain all verification conditions from the original code
+
+9. Constants and Definitions:
+- Define appropriate size limits for all arrays and buffers
+- Convert Python constants to #define or const variables
+- Maintain naming conventions from the original code
+
+10. Input/Output Handling:
+- Convert Python file operations to C file operations
+- Maintain the same file handling logic
+- Convert print statements to printf or fprintf
+- Handle string formatting appropriately
+
+11. Documentation:
+- Preserve all comments and documentation
+- Add C-style comments for important functions
+- Document any critical conversions or assumptions
+
+Example of a correct conversion pattern:
+
+Python:
+```python
+class MyClass:
+    def __init__(self, value):
+        self.value = value
+        
+    def process(self, data):
+        try:
+            result = data / self.value
+            return result
+        except ZeroDivisionError:
+            pass
+```
+C equivalent:
+
+```c
+#define MAX_LENGTH 100
+
+typedef struct {
+    int value;
+} MyClass;
+
+void init_my_class(MyClass* obj, int value) {
+    assert(obj != NULL);
+    obj->value = value;
+}
+
+bool process(MyClass* obj, int data, int* result) {
+    assert(obj != NULL);
+    assert(result != NULL);
+    
+    if (obj->value == 0) {
+        // Silent handling as in Python
+        return false;
+    }
+    
+    *result = data / obj->value;
+    return true;
+}
+```
