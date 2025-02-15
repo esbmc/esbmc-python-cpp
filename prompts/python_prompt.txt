@@ -33,8 +33,10 @@ Guidelines:
 - If the original code you are converting handles exceptions, make sure the same exceptions are caught in the C version too. Follow the same logic in python if an exception is caught.
 - If the code coming from python silently handles the exception, you should also handle it silently. In this case the assertion should not be raised. Handle the assertion with just a print statement in this case. A good example is when there is a pass command in an exception block.
 - If the code coming from python raises an exception, you should also raise an exception.
-- Make sure you've converted all est class functions
-- You must add all the methods, classes and functions that are in the python file, even those that are not used.  
+- Make sure all functions are correctly converted with 
+    * The same function name retained in C
+    * Equivalent parameter and return types
+    * All function logic is maintained exactly 
 - The convention or code returned must not be partial, it must be total. 
 
 

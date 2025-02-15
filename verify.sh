@@ -136,6 +136,12 @@ attempt_llm_conversion() {
         echo "3. Use equivalent C data structures and types"
         echo "4. Preserve any concurrent/parallel behavior"
         echo "5. Include necessary headers and dependencies"
+        if [ "$TEST_FUNCTION" = true ]; then
+            echo "6. Ensure the function '$TEST_FUNCTION_NAME' is correctly converted with:"
+            echo "   - Same function name preserved in C"
+            echo "   - Equivalent parameter types and return type"
+            echo "   - All function logic maintained exactly"
+        fi
         cat "$SOURCE_INSTRUCTION_FILE" 2>/dev/null
     } > "$TEMP_PROMPT"
 
