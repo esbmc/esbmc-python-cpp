@@ -7,6 +7,7 @@ Convert this Python code to C code that can be verified by ESBMC. The conversion
 - Convert all class methods to C functions with appropriate struct handling
 - Keep the same file structure and organization
 - All functions must be implemented, even if they are not used
+- The converted function, method and class must be complete with their logic  
 
 2. Error Handling and Assertions:
 - Preserve all logical errors exactly as they appear in the Python code
@@ -75,6 +76,8 @@ Convert this Python code to C code that can be verified by ESBMC. The conversion
 - Preserve all comments and documentation
 - Add C-style comments for important functions
 - Document any critical conversions or assumptions
+
+12. code converted to c must correspond 100% to python code
 
 Example of a correct conversion pattern:
 
