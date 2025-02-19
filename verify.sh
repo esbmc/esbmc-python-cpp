@@ -114,7 +114,6 @@ validate_translation() {
                         analysis_message+="     * Same function name preserved in C\n"
                         analysis_message+="     * Equivalent parameter types and return type\n"
                         analysis_message+="     * All function logic maintained exactly\n"
-                        analysis_message+="     * Special focus on memory safety and error conditions\n"
                     fi
                 done
             fi
@@ -180,7 +179,6 @@ attempt_llm_conversion() {
                     analysis_message+="     * Same function name preserved in C\n"
                     analysis_message+="     * Equivalent parameter types and return type\n"
                     analysis_message+="     * All function logic maintained exactly\n"
-                    analysis_message+="     * Special focus on memory safety and error conditions\n"
                 fi
             done
         fi
