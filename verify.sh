@@ -58,16 +58,14 @@ analyze_code_for_errors() {
         cat "$input_file"
     } > "$temp_file"
 
-    # Définir un fichier de sortie pour stocker les noms des fonctions
-    function_list_file="function_names.txt"
+    # Get raw output and create a list of potential function names
+    OUTPUT=$(aider --no-git --no-show-model-warnings --no-pretty \
+       --model "$LLM_MODEL" --yes --message-file "$temp_file")
 
-    # Exécuter l'analyse LLM et extraire uniquement les noms des fonctions
-    aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
-      --message-file "$TEMP_PROMPT" --read "$input_file" "$function_list_file" 
-
-    function_names=$(cat "$function_list_file")
+    # Nettoyer les fichiers temporaires
+    rm "$temp_file"
     
-    echo "$function_names"
+    echo "$OUTPUT"
 }
 
 print_esbmc_cmd() {
@@ -102,11 +100,31 @@ validate_translation() {
     while [ $attempt -le $max_attempts ]; do
         echo "Translation attempt $attempt of $max_attempts..."
 
+        if [ "$USE_ANALYSIS" = true ]; then
+            local analysis_message="3. Pay special attention to these potentially problematic functions:\n"
+            echo "Analyzing source code for potential errors..."
+            local ANALYZED_FUNCTIONS=$(analyze_code_for_errors "$input_file" | tr -d '[:space:]')
+            echo "list of sessions to be analyzed $ANALYZED_FUNCTIONS"
+            if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
+                for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
+                    if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
+                        echo "list of sessions to be analyzed $func"
+                        analysis_message+="   - Ensure function '$func' is correctly converted:\n"
+                        analysis_message+="     * Same function name preserved in C\n"
+                        analysis_message+="     * Equivalent parameter types and return type\n"
+                        analysis_message+="     * All function logic maintained exactly\n"
+                        analysis_message+="     * Special focus on memory safety and error conditions\n"
+                    fi
+                done
+            fi
+        fi
+
         {
             echo "=== TRANSLATION STATUS REQUEST ==="
             echo "Please review the current translation state and:"
             echo "1. Implement any missing functions if needed"
             echo "2. Indicate if more translation attempts are needed"
+            echo "$analysis_message"
             echo ""
             echo "=== ORIGINAL CODE ==="
             cat "$original_file"
@@ -165,11 +183,13 @@ attempt_llm_conversion() {
         if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
             for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
                 if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
-                    ANALYSIS_MESSAGE+="   - Ensure function '$func' is correctly converted:\n"
-                    ANALYSIS_MESSAGE+="     * Same function name preserved in C\n"
-                    ANALYSIS_MESSAGE+="     * Equivalent parameter types and return type\n"
-                    ANALYSIS_MESSAGE+="     * All function logic maintained exactly\n"
-                    ANALYSIS_MESSAGE+="     * Special focus on memory safety and error conditions\n"
+                    echo "list of sessions to be analyzed $func"
+
+                    analysis_message+="   - Ensure function '$func' is correctly converted:\n"
+                    analysis_message+="     * Same function name preserved in C\n"
+                    analysis_message+="     * Equivalent parameter types and return type\n"
+                    analysis_message+="     * All function logic maintained exactly\n"
+                    analysis_message+="     * Special focus on memory safety and error conditions\n"
                 fi
             done
         fi
