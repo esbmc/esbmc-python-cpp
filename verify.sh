@@ -47,11 +47,9 @@ show_usage() {
 analyze_code_for_errors() {
     local input_file=$1
     local temp_file=$(mktemp)
-    local output_file=$(mktemp)
-    
-    # Force immediate exit
+    local functions_to_test=""
+
     exec 1>&1
-    
     echo "Analyzing code for potential errors..." >&2
     
     {
@@ -64,22 +62,15 @@ analyze_code_for_errors() {
         cat "$input_file"
     } > "$temp_file"
 
-    # Use stdbuf to disable buffering and force immediate output
-    stdbuf -oL aider --no-git --no-show-model-warnings --no-pretty \
-        --model "$LLM_MODEL" --yes --message-file "$temp_file" 2>&1 | tee "$output_file"
-    
-    # Make sure everything is in writing
+    # Get raw output and create a list of potential function names
+    OUTPUT=$(aider --no-git --no-show-model-warnings --no-pretty \
+       --model "$LLM_MODEL" --yes --message-file "$temp_file" >&2)
+
     sync
-    
-    # Retrieve the last line containing the list of functions
-    local OUTPUT=$(tail -n 1 "$output_file")
-    
-    # Clean up temporary files
-    rm -f "$temp_file" "$output_file"
+    rm "$temp_file"
     
     echo "$OUTPUT"
 }
-
 
 print_esbmc_cmd() {
     local cmd=$1
@@ -524,9 +515,9 @@ if [ "$USE_ANALYSIS" = true ]; then
         for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
             if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
                 run_esbmc_for_function "$func"
-                # if [ $? -ne 0 ]; then
-                #     OVERALL_EXIT=1
-                # fi
+                if [ $? -ne 0 ]; then
+                    OVERALL_EXIT=1
+                fi
             fi
         done
     fi
