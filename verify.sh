@@ -64,11 +64,10 @@ analyze_code_for_errors() {
 
     # Get raw output and create a list of potential function names
     OUTPUT=$(aider --no-git --no-show-model-warnings --no-pretty \
-       --model "$LLM_MODEL" --yes --message-file "$temp_file" >&2)
+       --model "$LLM_MODEL" --yes --message-file "$temp_file" | tee /dev/tty)
 
     sync
     rm "$temp_file"
-    
     echo "$OUTPUT"
 }
 
@@ -110,7 +109,7 @@ validate_translation() {
             if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
                 for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
                     if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
-                        echo "list of functions to be analyzed $func"
+                        echo "list of functions to be analyzed :  $func"
                         analysis_message+="   - Ensure function '$func' is correctly converted:\n"
                         analysis_message+="     * Same function name preserved in C\n"
                         analysis_message+="     * Equivalent parameter types and return type\n"
