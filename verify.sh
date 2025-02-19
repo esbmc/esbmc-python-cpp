@@ -19,7 +19,7 @@ LIST_TEST_FUNCTIONS=""
 ANALYZED_FUNCTIONS=""
 
 # Prompt file paths
-SOURCE_INSTRUCTION_FILE="prompts/source_prompt.txt"
+SOURCE_INSTRUCTION_FILE="prompts/python_prompt.txt"
 VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
 EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
 
