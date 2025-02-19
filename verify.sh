@@ -257,8 +257,8 @@ explain_violation() {
         cat "$source_file" >> "$temp_file"
         echo -e "\n=== TRANSLATED C CODE ===" >> "$temp_file"
         cat "$c_file" >> "$temp_file"
-        echo -e "\n=== ESBMC VIOLATION ===" >> "$temp_file"
-        echo "$violation_output" >> "$temp_file"
+        echo -e "\n=== ESBMC VIOLATION (LAST 30 LINES) ===" >> "$temp_file"
+        echo "$violation_output" | tail -n 30 >> "$temp_file"
     }
     
     echo "Requesting explanation from LLM..."
