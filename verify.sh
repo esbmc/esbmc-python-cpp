@@ -93,16 +93,16 @@ validate_translation() {
     local original_file=$1
     local converted_file=$2
     local validation_mode=$3
-    local max_attempts=3
     local attempt=1
+    local success=false
 
     echo "Validating translation in $validation_mode mode..."
     
     local VALIDATION_LOG=$(mktemp)
     local COMBINED_FILE=$(mktemp)
 
-    while [ $attempt -le $max_attempts ]; do
-        echo "Translation attempt $attempt of $max_attempts..."
+    while [ "$success" = false ]; do
+        echo "Translation attempt $attempt..."
 
         if [ "$USE_ANALYSIS" = true ]; then
             local analysis_message="3. Pay special attention to these potentially problematic functions:\n"
@@ -125,7 +125,7 @@ validate_translation() {
             echo "=== TRANSLATION STATUS REQUEST ==="
             echo "Please review the current translation state and:"
             echo "1. Implement any missing functions if needed"
-            echo "2. Indicate if more translation attempts are needed"
+            echo "2. Fix any compilation errors in the current code"
             echo "$analysis_message"
             echo ""
             echo "=== ORIGINAL CODE ==="
@@ -138,33 +138,27 @@ validate_translation() {
             --message-file "$VALIDATION_INSTRUCTION_FILE" \
             --read "$COMBINED_FILE" "$converted_file"
             
-        if grep -q "Applied edit" "$VALIDATION_LOG"; then
-            echo "Successfully applied edits, continuing to next attempt..."
+        echo "Checking if code compiles..."
+        if [ "$USE_DOCKER" = true ]; then
+            CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
         else
-            echo "No edits needed in this attempt, translation complete"
-            break
+            CMDRUN="esbmc"
+        fi
+
+        if $CMDRUN --parse-tree-only "$converted_file" 2>/dev/null; then
+            echo "Compilation successful"
+            success=true
+        else
+            echo "Compilation failing on attempt $attempt - will retry with fixes..."
+            echo "Requesting LLM to fix compilation errors and try again..."
+            sleep 1
         fi
         
         ((attempt++))
     done
     
-    echo "Verifying final code with ESBMC parse-tree..."
-    if [ "$USE_DOCKER" = true ]; then
-        CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
-    else
-        CMDRUN="esbmc"
-    fi
-
-    if $CMDRUN --parse-tree-only "$converted_file" 2>/dev/null; then
-        echo "ESBMC parse-tree validation successful"
-        PARSE_SUCCESS=true
-    else
-        echo "ESBMC parse-tree validation failed"
-        PARSE_SUCCESS=false
-    fi
-    
     rm -f "$VALIDATION_LOG" "$COMBINED_FILE"
-    return $([ "$PARSE_SUCCESS" = true ] && echo 0 || echo 1)
+    return 0
 }
 
 attempt_llm_conversion() {
