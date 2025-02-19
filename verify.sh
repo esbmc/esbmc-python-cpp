@@ -469,7 +469,7 @@ ESBMC_CMD="esbmc --segfault-handler \
 run_esbmc_for_function() {
     local function_name=$1
     local current_opts="$ESBMC_EXTRA_OPTS --function $function_name"
-    local current_cmd="$BASE_ESBMC_CMD $current_opts"
+    local current_cmd="$ESBMC_CMD $current_opts"
     local current_output_file=$(mktemp)
 
     print_esbmc_cmd "$current_opts"
@@ -527,7 +527,7 @@ elif [ "$TEST_FUNCTION" = true ]; then
     OVERALL_EXIT=$?
 else
     # Default mode without specific function
-    ESBMC_CMD="$BASE_ESBMC_CMD $ESBMC_EXTRA_OPTS"
+    ESBMC_CMD="$ESBMC_CMD $ESBMC_EXTRA_OPTS"
     print_esbmc_cmd "$ESBMC_CMD"
     ESBMC_OUTPUT_FILE=$(mktemp)
     
