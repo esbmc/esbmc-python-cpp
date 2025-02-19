@@ -14,30 +14,61 @@ ESBMC_EXTRA_OPTS=""
 LLM_MODEL="openrouter/anthropic/claude-3.5-sonnet"
 TEST_FUNCTION_NAME=""
 TRANSLATION_MODE=""
+USE_ANALYSIS=false
+LIST_TEST_FUNCTIONS=""
+ANALYZED_FUNCTIONS=""
 
 # Prompt file paths
-SOURCE_INSTRUCTION_FILE="prompts/source_prompt.txt"
+SOURCE_INSTRUCTION_FILE="prompts/python_prompt.txt"
 VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
 EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
 
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] <filename>"
-  echo "Options:"
-  echo "  --docker              Run ESBMC in Docker container"
-  echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
-  echo "  --container ID        Specify existing container ID"
-  echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
-  echo "  --function FUNCTION_NAME   Test function mode (adds --function)"
-  echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/anthropic/claude-3.5-sonnet)"
-  echo "  --translate MODE      Set translation mode (fast|reasoning)"
-  echo "                        fast: Use Gemini for quick translations"
-  echo "                        reasoning: Use DeepSeek for complex translations"
-  echo "  --validate-translation MODE Validate and fix translated code (partial|complete)"
-  echo "                        partial: Basic validation of syntax and structure"
-  echo "                        complete: Ensure full functional equivalence"
-  echo "  --explain            Explain ESBMC violations in terms of source code"
-  echo "  --fast               Enable fast mode (adds --unwind 10 --no-unwinding-assertions)"
-  exit 1
+    echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] <filename>"
+    echo "Options:"
+    echo "  --docker              Run ESBMC in Docker container"
+    echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
+    echo "  --container ID        Specify existing container ID"
+    echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
+    echo "  --function FUNCTION_NAME   Test function mode (adds --function)"
+    echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/anthropic/claude-3.5-sonnet)"
+    echo "  --translate MODE      Set translation mode (fast|reasoning)"
+    echo "                        fast: Use Gemini for quick translations"
+    echo "                        reasoning: Use DeepSeek for complex translations"
+    echo "  --validate-translation MODE Validate and fix translated code (partial|complete)"
+    echo "                        partial: Basic validation of syntax and structure"
+    echo "                        complete: Ensure full functional equivalence"
+    echo "  --explain            Explain ESBMC violations in terms of source code"
+    echo "  --fast               Enable fast mode (adds --unwind 10 --no-unwinding-assertions)"
+    echo "  --analyze            Analyze and test functions that may have errors"
+    exit 1
+}
+
+analyze_code_for_errors() {
+    local input_file=$1
+    local temp_file=$(mktemp)
+    local functions_to_test=""
+
+    exec 1>&1
+    echo "Analyzing code for potential errors..." >&2
+    
+    {
+        echo "Analyze the following code and identify functions that might contain errors."
+        echo ""
+        echo "Return ONLY a comma-separated list of function names that should be tested."
+        echo "Do NOT include any other text, explanations, or formatting."
+        echo ""
+        echo "=== SOURCE CODE ==="
+        cat "$input_file"
+    } > "$temp_file"
+
+    # Get raw output and create a list of potential function names
+    OUTPUT=$(aider --no-git --no-show-model-warnings --no-pretty \
+       --model "$LLM_MODEL" --yes --message-file "$temp_file" | tee /dev/tty)
+
+    sync
+    rm "$temp_file"
+    echo "$OUTPUT"
 }
 
 print_esbmc_cmd() {
@@ -61,22 +92,40 @@ validate_translation() {
     local original_file=$1
     local converted_file=$2
     local validation_mode=$3
-    local max_attempts=3
     local attempt=1
+    local success=false
 
     echo "Validating translation in $validation_mode mode..."
     
     local VALIDATION_LOG=$(mktemp)
     local COMBINED_FILE=$(mktemp)
 
-    while [ $attempt -le $max_attempts ]; do
-        echo "Translation attempt $attempt of $max_attempts..."
+    while [ "$success" = false ]; do
+        echo "Translation attempt $attempt..."
+
+        if [ "$USE_ANALYSIS" = true ]; then
+            local analysis_message="3. Pay special attention to these potentially problematic functions:\n"
+            ANALYZED_FUNCTIONS=$(analyze_code_for_errors "$input_file" | tr -d '[:space:]')
+            if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
+                for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
+                    if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
+                        # echo "list of functions to be analyzed :  $func"
+                        analysis_message+="   - Ensure function '$func' is correctly converted:\n"
+                        analysis_message+="     * Same function name preserved in C\n"
+                        analysis_message+="     * Equivalent parameter types and return type\n"
+                        analysis_message+="     * All function logic maintained exactly\n"
+                        analysis_message+="     * Special focus on memory safety and error conditions\n"
+                    fi
+                done
+            fi
+        fi
 
         {
             echo "=== TRANSLATION STATUS REQUEST ==="
             echo "Please review the current translation state and:"
             echo "1. Implement any missing functions if needed"
-            echo "2. Indicate if more translation attempts are needed"
+            echo "2. Fix any compilation errors in the current code"
+            echo "$analysis_message"
             echo ""
             echo "=== ORIGINAL CODE ==="
             cat "$original_file"
@@ -88,33 +137,27 @@ validate_translation() {
             --message-file "$VALIDATION_INSTRUCTION_FILE" \
             --read "$COMBINED_FILE" "$converted_file"
             
-        if grep -q "Applied edit" "$VALIDATION_LOG"; then
-            echo "Successfully applied edits, continuing to next attempt..."
+        echo "Checking if code compiles..."
+        if [ "$USE_DOCKER" = true ]; then
+            CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
         else
-            echo "No edits needed in this attempt, translation complete"
-            break
+            CMDRUN="esbmc"
+        fi
+
+        if $CMDRUN --parse-tree-only "$converted_file" 2>/dev/null; then
+            echo "Compilation successful"
+            success=true
+        else
+            echo "Compilation failing on attempt $attempt - will retry with fixes..."
+            echo "Requesting LLM to fix compilation errors and try again..."
+            sleep 1
         fi
         
         ((attempt++))
     done
     
-    echo "Verifying final code with ESBMC parse-tree..."
-    if [ "$USE_DOCKER" = true ]; then
-        CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
-    else
-        CMDRUN="esbmc"
-    fi
-
-    if $CMDRUN --parse-tree-only "$converted_file" 2>/dev/null; then
-        echo "ESBMC parse-tree validation successful"
-        PARSE_SUCCESS=true
-    else
-        echo "ESBMC parse-tree validation failed"
-        PARSE_SUCCESS=false
-    fi
-    
     rm -f "$VALIDATION_LOG" "$COMBINED_FILE"
-    return $([ "$PARSE_SUCCESS" = true ] && echo 0 || echo 1)
+    return 0
 }
 
 attempt_llm_conversion() {
@@ -125,8 +168,24 @@ attempt_llm_conversion() {
     local success=false
     local file_extension="${input_file##*.}"
 
-    # Add source language context to the prompt
     local TEMP_PROMPT=$(mktemp)
+    if [ "$USE_ANALYSIS" = true ]; then
+        local analysis_message="6. Pay special attention to these potentially problematic functions:\n"
+        ANALYZED_FUNCTIONS=$(analyze_code_for_errors "$input_file" | tr -d '[:space:]')
+        if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
+            for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
+                if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
+                    echo "Functions to be analyzed $func"
+                    analysis_message+="   - Ensure function '$func' is correctly converted:\n"
+                    analysis_message+="     * Same function name preserved in C\n"
+                    analysis_message+="     * Equivalent parameter types and return type\n"
+                    analysis_message+="     * All function logic maintained exactly\n"
+                    analysis_message+="     * Special focus on memory safety and error conditions\n"
+                fi
+            done
+        fi
+    fi
+
     {
         echo "Convert the following ${file_extension} code to C code that can be verified by ESBMC."
         echo "Ensure the core functionality and behavior is preserved."
@@ -142,11 +201,11 @@ attempt_llm_conversion() {
             echo "   - Equivalent parameter types and return type"
             echo "   - All function logic maintained exactly"
         fi
+        echo "$analysis_message"
         cat "$SOURCE_INSTRUCTION_FILE" 2>/dev/null
     } > "$TEMP_PROMPT"
 
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
-        local CMDRUN
         echo "Attempt $attempt of $max_attempts to generate valid C code from ${file_extension}..."
         
         if [ $attempt -eq 1 ]; then
@@ -155,11 +214,11 @@ attempt_llm_conversion() {
         else
             if [ "$USE_DOCKER" = true ]; then
                 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
-                    --test-cmd "docker run --rm -v $(pwd):/workspace -w /workspace '$DOCKER_IMAGE' esbmc --parse-tree-only '$output_file'" \
+                    --test-cmd "docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc --parse-tree-only $output_file" \
                     --yes --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
             else
                 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
-                    --test-cmd "esbmc --parse-tree-only '$output_file'" \
+                    --test-cmd "esbmc --parse-tree-only $output_file" \
                     --yes --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
             fi
         fi
@@ -198,8 +257,8 @@ explain_violation() {
         cat "$source_file" >> "$temp_file"
         echo -e "\n=== TRANSLATED C CODE ===" >> "$temp_file"
         cat "$c_file" >> "$temp_file"
-        echo -e "\n=== ESBMC VIOLATION ===" >> "$temp_file"
-        echo "$violation_output" >> "$temp_file"
+        echo -e "\n=== ESBMC VIOLATION (LAST 30 LINES) ===" >> "$temp_file"
+        echo "$violation_output" | tail -n 30 >> "$temp_file"
     }
     
     echo "Requesting explanation from LLM..."
@@ -217,6 +276,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --docker) USE_DOCKER=true; shift ;;
         --llm) USE_LLM=true; shift ;;
+        --analyze) USE_ANALYSIS=true; shift ;;
         --validate-translation)
             case "$2" in
                 partial|complete)
@@ -390,47 +450,109 @@ if [ "$FAST_MODE" = true ]; then
     ESBMC_EXTRA_OPTS="$ESBMC_EXTRA_OPTS --unwind 10 --no-unwinding-assertions"
 fi
 
-if [ "$TEST_FUNCTION" = true ]; then
-    ESBMC_EXTRA_OPTS="$ESBMC_EXTRA_OPTS --function $TEST_FUNCTION_NAME"
-fi
-
 ESBMC_CMD="esbmc --segfault-handler \
     -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
-    $TARGET_FILE --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets $THREAD_OPTIONS $ESBMC_EXTRA_OPTS"
+    $TARGET_FILE --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets $THREAD_OPTIONS"
 
-print_esbmc_cmd "$ESBMC_CMD"
+# Function to run ESBMC for a specific function
+run_esbmc_for_function() {
+    local function_name=$1
+    local current_opts="$ESBMC_EXTRA_OPTS --function $function_name"
+    local current_cmd="$ESBMC_CMD $current_opts"
+    local current_output_file=$(mktemp)
 
-# Capture ESBMC output for potential explanation
-ESBMC_OUTPUT_FILE=$(mktemp)
-
-echo "Running ESBMC..."
-if [ "$USE_DOCKER" = true ]; then
-    if [ ! -z "$CONTAINER_ID" ]; then
-        docker exec "$CONTAINER_ID" mkdir -p /workspace
-        docker cp . "$CONTAINER_ID":/workspace/
-        docker exec -w /workspace "$CONTAINER_ID" bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
-        ESBMC_EXIT=${PIPESTATUS[0]}
-        docker exec "$CONTAINER_ID" rm -rf /workspace/*
+    print_esbmc_cmd "$current_opts"
+    
+    echo "----------------------------------------"
+    echo "Testing function: $function_name"
+    echo "ESBMC command to be executed:"
+    echo "$current_cmd"
+    echo "----------------------------------------"
+    
+    if [ "$USE_DOCKER" = true ]; then
+        if [ ! -z "$CONTAINER_ID" ]; then
+            docker exec "$CONTAINER_ID" mkdir -p /workspace
+            docker cp . "$CONTAINER_ID:/workspace/"
+            docker exec -w /workspace "$CONTAINER_ID" bash -c "$current_cmd" 2>&1 | tee "$current_output_file"
+            local exit_code=${PIPESTATUS[0]}
+            docker exec "$CONTAINER_ID" rm -rf /workspace/*
+        else
+            docker run --rm \
+                -v "$(pwd)":/workspace \
+                -w /workspace \
+                "$DOCKER_IMAGE" \
+                bash -c "$current_cmd" 2>&1 | tee "$current_output_file"
+            local exit_code=${PIPESTATUS[0]}
+        fi
     else
-        docker run --rm \
-            -v "$(pwd)":/workspace \
-            -w /workspace \
-            "$DOCKER_IMAGE" \
-            bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
-        ESBMC_EXIT=${PIPESTATUS[0]}
+        eval "$current_cmd" 2>&1 | tee "$current_output_file"
+        local exit_code=${PIPESTATUS[0]}
     fi
+    
+    # If verification failed and explanation was requested, explain the violation
+    if [ $exit_code -ne 0 ] && [ "$EXPLAIN_VIOLATION" = true ]; then
+        echo -e "\nAnalyzing verification failure for function: $function_name..."
+        explain_violation "$FILENAME" "$TARGET_FILE" "$(cat $current_output_file)"
+    fi
+    
+    rm "$current_output_file"
+    return $exit_code
+}
+
+# Variable to track overall exit status
+OVERALL_EXIT=0
+
+if [ "$USE_ANALYSIS" = true ]; then
+    echo "Running ESBMC for multiple functions..."
+    if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
+        for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
+            if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
+                run_esbmc_for_function "$func"
+                if [ $? -ne 0 ]; then
+                    OVERALL_EXIT=1
+                fi
+            fi
+        done
+    fi
+elif [ "$TEST_FUNCTION" = true ]; then
+    # Single function test mode
+    run_esbmc_for_function "$TEST_FUNCTION_NAME"
+    OVERALL_EXIT=$?
 else
-    eval "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
-    ESBMC_EXIT=${PIPESTATUS[0]}
+    # Default mode without specific function
+    ESBMC_CMD="$ESBMC_CMD $ESBMC_EXTRA_OPTS"
+    print_esbmc_cmd "$ESBMC_CMD"
+    ESBMC_OUTPUT_FILE=$(mktemp)
+    
+    echo "Running ESBMC..."
+    if [ "$USE_DOCKER" = true ]; then
+        if [ ! -z "$CONTAINER_ID" ]; then
+            docker exec "$CONTAINER_ID" mkdir -p /workspace
+            docker cp . "$CONTAINER_ID:/workspace/"
+            docker exec -w /workspace "$CONTAINER_ID" bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
+            OVERALL_EXIT=${PIPESTATUS[0]}
+            docker exec "$CONTAINER_ID" rm -rf /workspace/*
+        else
+            docker run --rm \
+                -v "$(pwd)":/workspace \
+                -w /workspace \
+                "$DOCKER_IMAGE" \
+                bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
+            OVERALL_EXIT=${PIPESTATUS[0]}
+        fi
+    else
+        eval "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
+        OVERALL_EXIT=${PIPESTATUS[0]}
+    fi
+    
+    if [ $OVERALL_EXIT -ne 0 ] && [ "$EXPLAIN_VIOLATION" = true ]; then
+        echo -e "\nAnalyzing verification failure..."
+        explain_violation "$FILENAME" "$TARGET_FILE" "$(cat $ESBMC_OUTPUT_FILE)"
+    fi
+    
+    rm "$ESBMC_OUTPUT_FILE"
 fi
 
-# If verification failed and explanation was requested, explain the violation
-if [ $ESBMC_EXIT -ne 0 ] && [ "$EXPLAIN_VIOLATION" = true ]; then
-    echo -e "\nAnalyzing verification failure..."
-    explain_violation "$FILENAME" "$TARGET_FILE" "$(cat $ESBMC_OUTPUT_FILE)"
-fi
-
-rm "$ESBMC_OUTPUT_FILE"
 cd "$OLD_PWD"
 echo "Temporary files available in: $TEMP_DIR"
-exit $ESBMC_EXIT
+exit $OVERALL_EXIT

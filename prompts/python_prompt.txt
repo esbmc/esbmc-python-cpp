@@ -9,6 +9,8 @@ Avoid using function pointers. This means do not pass in pointers to ANY param i
 Even if code was translated like that, ignore that code.
 Do not make it multi-threaded code unless there is threading in the code.
 
+
+
 Guidelines:
 - Convert Python data structures to C equivalents (lists -> arrays, etc.)
 - Use fixed-size arrays instead of dynamic allocation when possible
@@ -29,6 +31,8 @@ Guidelines:
 - Keep the same logical assertions in the original and converted code
 - Avoid external library functions
 - You can convert nondet_uint(), nondet_bool(), (no need to declare it, ESBMC understands these),
+- Never define functions like  int __ESBMC_assume(int); Just call __ESBMC_assume directly
+- Use assert and not ESBMC_assert which does not exist.                                                                                                                                                                    
 - Do not convert random.randint(0, length-1) to nondet, use the random function directly, do not Using nondet_uint() for verification if the value range is given
 - If the original code you are converting handles exceptions, make sure the same exceptions are caught in the C version too. Follow the same logic in python if an exception is caught.
 - If the code coming from python silently handles the exception, you should also handle it silently. In this case the assertion should not be raised. Handle the assertion with just a print statement in this case. A good example is when there is a pass command in an exception block.
