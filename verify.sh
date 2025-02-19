@@ -104,7 +104,6 @@ validate_translation() {
             local analysis_message="3. Pay special attention to these potentially problematic functions:\n"
             echo "Analyzing source code for potential errors..."
             local ANALYZED_FUNCTIONS=$(analyze_code_for_errors "$input_file" | tr -d '[:space:]')
-            echo "list of sessions to be analyzed $ANALYZED_FUNCTIONS"
             if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
                 for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
                     if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
@@ -212,7 +211,7 @@ attempt_llm_conversion() {
         echo "$analysis_message"
         cat "$SOURCE_INSTRUCTION_FILE" 2>/dev/null
     } > "$TEMP_PROMPT"
-
+    echo "list of sessions to be analyzed prompt $TEMP_PROMPT"
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
         local CMDRUN
         echo "Attempt $attempt of $max_attempts to generate valid C code from ${file_extension}..."
@@ -513,7 +512,7 @@ run_esbmc_for_function() {
 # Variable to track overall exit status
 OVERALL_EXIT=0
 
-if [ ! -z "$LIST_TEST_FUNCTIONS" ]; then
+if [ "$USE_ANALYSIS" = true ]; then
     echo "Running ESBMC for multiple functions..."
     for func in $LIST_TEST_FUNCTIONS; do
         run_esbmc_for_function "$func"
