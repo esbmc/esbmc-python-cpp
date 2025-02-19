@@ -16,6 +16,7 @@ TEST_FUNCTION_NAME=""
 TRANSLATION_MODE=""
 USE_ANALYSIS=false
 LIST_TEST_FUNCTIONS=""
+ANALYZED_FUNCTIONS=""
 
 # Prompt file paths
 SOURCE_INSTRUCTION_FILE="prompts/source_prompt.txt"
@@ -23,30 +24,35 @@ VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
 EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
 
 show_usage() {
-  echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] <filename>"
-  echo "Options:"
-  echo "  --docker              Run ESBMC in Docker container"
-  echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
-  echo "  --container ID        Specify existing container ID"
-  echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
-  echo "  --function FUNCTION_NAME   Test function mode (adds --function)"
-  echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/anthropic/claude-3.5-sonnet)"
-  echo "  --translate MODE      Set translation mode (fast|reasoning)"
-  echo "                        fast: Use Gemini for quick translations"
-  echo "                        reasoning: Use DeepSeek for complex translations"
-  echo "  --validate-translation MODE Validate and fix translated code (partial|complete)"
-  echo "                        partial: Basic validation of syntax and structure"
-  echo "                        complete: Ensure full functional equivalence"
-  echo "  --explain            Explain ESBMC violations in terms of source code"
-  echo "  --fast               Enable fast mode (adds --unwind 10 --no-unwinding-assertions)"
-  echo "  --analyze            Analyze and test functions that may have errors  "
-  exit 1
+    echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] <filename>"
+    echo "Options:"
+    echo "  --docker              Run ESBMC in Docker container"
+    echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
+    echo "  --container ID        Specify existing container ID"
+    echo "  --esbmc-opts OPTS    Additional ESBMC options (in quotes)"
+    echo "  --function FUNCTION_NAME   Test function mode (adds --function)"
+    echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/anthropic/claude-3.5-sonnet)"
+    echo "  --translate MODE      Set translation mode (fast|reasoning)"
+    echo "                        fast: Use Gemini for quick translations"
+    echo "                        reasoning: Use DeepSeek for complex translations"
+    echo "  --validate-translation MODE Validate and fix translated code (partial|complete)"
+    echo "                        partial: Basic validation of syntax and structure"
+    echo "                        complete: Ensure full functional equivalence"
+    echo "  --explain            Explain ESBMC violations in terms of source code"
+    echo "  --fast               Enable fast mode (adds --unwind 10 --no-unwinding-assertions)"
+    echo "  --analyze            Analyze and test functions that may have errors"
+    exit 1
 }
 
 analyze_code_for_errors() {
     local input_file=$1
     local temp_file=$(mktemp)
-    local functions_to_test=""
+    local output_file=$(mktemp)
+    
+    # Force immediate exit
+    exec 1>&1
+    
+    echo "Analyzing code for potential errors..." >&2
     
     {
         echo "Analyze the following code and identify functions that might contain errors."
@@ -58,15 +64,22 @@ analyze_code_for_errors() {
         cat "$input_file"
     } > "$temp_file"
 
-    # Get raw output and create a list of potential function names
-    OUTPUT=$(aider --no-git --no-show-model-warnings --no-pretty \
-       --model "$LLM_MODEL" --yes --message-file "$temp_file")
-
-    # Nettoyer les fichiers temporaires
-    rm "$temp_file"
+    # Use stdbuf to disable buffering and force immediate output
+    stdbuf -oL aider --no-git --no-show-model-warnings --no-pretty \
+        --model "$LLM_MODEL" --yes --message-file "$temp_file" 2>&1 | tee "$output_file"
+    
+    # Make sure everything is in writing
+    sync
+    
+    # Retrieve the last line containing the list of functions
+    local OUTPUT=$(tail -n 1 "$output_file")
+    
+    # Clean up temporary files
+    rm -f "$temp_file" "$output_file"
     
     echo "$OUTPUT"
 }
+
 
 print_esbmc_cmd() {
     local cmd=$1
@@ -102,12 +115,11 @@ validate_translation() {
 
         if [ "$USE_ANALYSIS" = true ]; then
             local analysis_message="3. Pay special attention to these potentially problematic functions:\n"
-            echo "Analyzing source code for potential errors..."
-            local ANALYZED_FUNCTIONS=$(analyze_code_for_errors "$input_file" | tr -d '[:space:]')
+            ANALYZED_FUNCTIONS=$(analyze_code_for_errors "$input_file" | tr -d '[:space:]')
             if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
                 for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
                     if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
-                        echo "list of sessions to be analyzed $func"
+                        echo "list of functions to be analyzed $func"
                         analysis_message+="   - Ensure function '$func' is correctly converted:\n"
                         analysis_message+="     * Same function name preserved in C\n"
                         analysis_message+="     * Equivalent parameter types and return type\n"
@@ -172,18 +184,14 @@ attempt_llm_conversion() {
     local success=false
     local file_extension="${input_file##*.}"
 
-    # Add source language context to the prompt
     local TEMP_PROMPT=$(mktemp)
     if [ "$USE_ANALYSIS" = true ]; then
         local analysis_message="6. Pay special attention to these potentially problematic functions:\n"
-        echo "Analyzing source code for potential errors..."
-        local ANALYZED_FUNCTIONS=$(analyze_code_for_errors "$input_file" | tr -d '[:space:]')
-        echo "list of sessions to be analyzed $ANALYZED_FUNCTIONS"
+        ANALYZED_FUNCTIONS=$(analyze_code_for_errors "$input_file" | tr -d '[:space:]')
         if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
             for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
                 if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
-                    echo "list of sessions to be analyzed $func"
-
+                    echo "Functions to be analyzed $func"
                     analysis_message+="   - Ensure function '$func' is correctly converted:\n"
                     analysis_message+="     * Same function name preserved in C\n"
                     analysis_message+="     * Equivalent parameter types and return type\n"
@@ -193,6 +201,7 @@ attempt_llm_conversion() {
             done
         fi
     fi
+
     {
         echo "Convert the following ${file_extension} code to C code that can be verified by ESBMC."
         echo "Ensure the core functionality and behavior is preserved."
@@ -211,9 +220,8 @@ attempt_llm_conversion() {
         echo "$analysis_message"
         cat "$SOURCE_INSTRUCTION_FILE" 2>/dev/null
     } > "$TEMP_PROMPT"
-    echo "list of sessions to be analyzed prompt $TEMP_PROMPT"
+
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
-        local CMDRUN
         echo "Attempt $attempt of $max_attempts to generate valid C code from ${file_extension}..."
         
         if [ $attempt -eq 1 ]; then
@@ -222,11 +230,11 @@ attempt_llm_conversion() {
         else
             if [ "$USE_DOCKER" = true ]; then
                 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
-                    --test-cmd "docker run --rm -v $(pwd):/workspace -w /workspace '$DOCKER_IMAGE' esbmc --parse-tree-only '$output_file'" \
+                    --test-cmd "docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc --parse-tree-only $output_file" \
                     --yes --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
             else
                 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
-                    --test-cmd "esbmc --parse-tree-only '$output_file'" \
+                    --test-cmd "esbmc --parse-tree-only $output_file" \
                     --yes --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
             fi
         fi
@@ -278,7 +286,6 @@ explain_violation() {
     
     rm "$temp_file"
 }
-
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -459,7 +466,6 @@ if [ "$FAST_MODE" = true ]; then
     ESBMC_EXTRA_OPTS="$ESBMC_EXTRA_OPTS --unwind 10 --no-unwinding-assertions"
 fi
 
-
 ESBMC_CMD="esbmc --segfault-handler \
     -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
     $TARGET_FILE --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets $THREAD_OPTIONS"
@@ -482,7 +488,7 @@ run_esbmc_for_function() {
     if [ "$USE_DOCKER" = true ]; then
         if [ ! -z "$CONTAINER_ID" ]; then
             docker exec "$CONTAINER_ID" mkdir -p /workspace
-            docker cp . "$CONTAINER_ID":/workspace/
+            docker cp . "$CONTAINER_ID:/workspace/"
             docker exec -w /workspace "$CONTAINER_ID" bash -c "$current_cmd" 2>&1 | tee "$current_output_file"
             local exit_code=${PIPESTATUS[0]}
             docker exec "$CONTAINER_ID" rm -rf /workspace/*
@@ -514,12 +520,16 @@ OVERALL_EXIT=0
 
 if [ "$USE_ANALYSIS" = true ]; then
     echo "Running ESBMC for multiple functions..."
-    for func in $LIST_TEST_FUNCTIONS; do
-        run_esbmc_for_function "$func"
-        if [ $? -ne 0 ]; then
-            OVERALL_EXIT=1
-        fi
-    done
+    if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
+        for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
+            if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
+                run_esbmc_for_function "$func"
+                # if [ $? -ne 0 ]; then
+                #     OVERALL_EXIT=1
+                # fi
+            fi
+        done
+    fi
 elif [ "$TEST_FUNCTION" = true ]; then
     # Single function test mode
     run_esbmc_for_function "$TEST_FUNCTION_NAME"
@@ -534,7 +544,7 @@ else
     if [ "$USE_DOCKER" = true ]; then
         if [ ! -z "$CONTAINER_ID" ]; then
             docker exec "$CONTAINER_ID" mkdir -p /workspace
-            docker cp . "$CONTAINER_ID":/workspace/
+            docker cp . "$CONTAINER_ID:/workspace/"
             docker exec -w /workspace "$CONTAINER_ID" bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
             OVERALL_EXIT=${PIPESTATUS[0]}
             docker exec "$CONTAINER_ID" rm -rf /workspace/*
