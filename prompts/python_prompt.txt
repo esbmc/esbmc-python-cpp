@@ -1,48 +1,49 @@
-Convert this Python code to C code that can be verified by ESBMC. Translate ALL the code, do not only partially translate it. Make sure all methods are translated.
+Convert this Python code to C code that can be verified by ESBMC. Translate **ALL** the code, do not partially translate it. Make sure **all methods** are translated completely.
 
-The goal is to verify that this code is working correctly with ESBMC. Hence keep all the logic errors,
-it would be bad if you fix the code and the logical error was thus missed. If there is a compile error, preserve it,
-and let it show in the code as an assertion error on the bad code, rather than a compile error. If there is a logical error, and it wont be visible, make it an assertion failure.
+The goal is to verify that this code is working correctly with ESBMC. Hence, **keep all the logic errors**.  
+It would be bad if you fix the code and the logical error was thus missed.  
+If there is a **compile error**, preserve it and let it show in the code as an **assertion error** rather than a compile error.  
+If there is a **logical error**, and it won’t be visible, make it an assertion failure.
 
-The code was originally python code before C++.
-Avoid using function pointers. This means do not pass in pointers to ANY param in ANY function.
-Even if code was translated like that, ignore that code.
-Do not make it multi-threaded code unless there is threading in the code.
+The code was originally Python before C++.  
+**Avoid using function pointers.** This means **do not pass in pointers** to ANY parameter in ANY function.  
+Even if the translated code originally used function pointers, **ignore that** and find an alternative approach.  
+**Do not make it multi-threaded** code unless there is threading in the original Python code.
 
+---
 
-
-Guidelines:
-- Convert Python data structures to C equivalents (lists -> arrays, etc.)
-- Use fixed-size arrays instead of dynamic allocation when possible
-- Preserve all verification properties and assertions
-- Include necessary headers (stdio.h, stdlib.h)
-- If the code uses threading:
-    * Include pthread.h
-    * Use standard pthread functions
-    * Ensure thread functions have proper signatures (void* argument, void* return)
-    * Add proper mutex initialization and cleanup
-    * Keep thread count bounded and explicit
-- Handle Python-specific features appropriately
-- Keep assertions as assert() without extra conditions
-- Keep the loop original semantics.
-- Add appropriate error handling
-- Keep variable names similar where possible
-- Break complex operations into simpler steps
-- Keep the same logical assertions in the original and converted code
-- Avoid external library functions
-- You can convert nondet_uint(), nondet_bool(), (no need to declare it, ESBMC understands these),
-- Never define functions like  int __ESBMC_assume(int); Just call __ESBMC_assume directly
-- Use assert and not ESBMC_assert which does not exist.                                                                                                                                                                    
-- Do not convert random.randint(0, length-1) to nondet, use the random function directly, do not Using nondet_uint() for verification if the value range is given
-- If the original code you are converting handles exceptions, make sure the same exceptions are caught in the C version too. Follow the same logic in python if an exception is caught.
-- If the code coming from python silently handles the exception, you should also handle it silently. In this case the assertion should not be raised. Handle the assertion with just a print statement in this case. A good example is when there is a pass command in an exception block.
-- If the code coming from python raises an exception, you should also raise an exception.
-- Make sure all functions are correctly converted with 
-    * The same function name retained in C
-    * Equivalent parameter and return types
-    * All function logic is maintained exactly 
-- The convention or code returned must not be partial, it must be total. 
-
-
-
+## **Guidelines:**
+- **Convert ALL Python functions, classes, and logic. Do not omit anything.**
+- **Translate Python data structures** to C equivalents:
+  - `list` → fixed-size `array` or `struct`
+  - `dict` → `struct`
+  - `tuple` → `struct` (if needed)
+  - `set` → `array` with uniqueness enforcement
+- **Use fixed-size arrays** instead of dynamic allocation when possible.
+- **Preserve all verification properties and assertions.**
+- **Include necessary C headers** (`stdio.h`, `stdlib.h`, `stdbool.h`, `string.h`).
+- **Handle assertions correctly:**
+  - Keep all assertions as `assert()` **without adding extra conditions**.
+  - Use `assert()` instead of `ESBMC_assert()`, which **does not exist**.
+  - If there is an **ESBMC-specific assumption**, use `__ESBMC_assume()` directly (never define it yourself).
+- **Preserve loops and conditions** exactly as they are in Python.
+- **Break complex operations** into smaller, well-structured steps.
+- **Keep the same function names in C** as in the Python code.
+- **Ensure all function logic is accurately converted**:
+  - Equivalent parameter and return types.
+  - **All function behavior must match exactly**.
+- **Avoid external library functions** unless absolutely necessary.
+- **Use proper error handling** equivalent to Python’s `try-except`:
+  - If the original Python code **handles exceptions silently**, handle them **silently** in C.
+  - If an exception is **raised in Python**, make sure the C version **returns an error code** or prints an error message.
+- **Convert randomness correctly**:
+  - If the Python code uses `random.randint(0, length-1)`, replace it with `rand()` in C and **do not use nondet_uint()**.
+- **Avoid unnecessary type changes**:
+  - If Python uses `int`, keep it as `int` in C.
+  - If Python uses `bool`, use `bool` (or `_Bool`) in C.
+- **Ensure memory management is correct**:
+  - Replace Python’s automatic memory management with **manual allocation (`malloc()`) and deallocation (`free()`)** only when needed.
+  - Prefer **stack allocation** over `malloc()` when possible.
+- **Do not return partial code**—the output must be a **full, functional, and compilable C program**.
+- **Avoid function headers that do not exist in C**; instead, create **explicit functions** to solve any Python-specific behavior.
 
