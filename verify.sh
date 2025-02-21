@@ -56,6 +56,7 @@ analyze_code_for_errors() {
         echo "Analyze the following code and identify functions that might contain errors."
         echo ""
         echo "Return ONLY a comma-separated list of function names that should be tested."
+        echo "Return the exact name of the function "
         echo "Do NOT include any other text, explanations, or formatting."
         echo ""
         echo "=== SOURCE CODE ==="
@@ -114,7 +115,7 @@ validate_translation() {
                         analysis_message+="     * Same function name preserved in C\n"
                         analysis_message+="     * Equivalent parameter types and return type\n"
                         analysis_message+="     * All function logic maintained exactly\n"
-                        analysis_message+="     * Special focus on memory safety and error conditions\n"
+                        analysis_message+="     * The function converts to c must be the same even the content is very important \n"
                     fi
                 done
             fi
@@ -175,12 +176,12 @@ attempt_llm_conversion() {
         if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
             for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
                 if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
-                    echo "Functions to be analyzed $func"
+                    # echo "Functions to be analyzed $func"
                     analysis_message+="   - Ensure function '$func' is correctly converted:\n"
                     analysis_message+="     * Same function name preserved in C\n"
                     analysis_message+="     * Equivalent parameter types and return type\n"
                     analysis_message+="     * All function logic maintained exactly\n"
-                    analysis_message+="     * Special focus on memory safety and error conditions\n"
+                    analysis_message+="     * The function converts to c must be the same even the content is very important \n"
                 fi
             done
         fi
