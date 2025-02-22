@@ -28,3 +28,10 @@ Validate code translation, will validate the code translation, and adjust if not
 
 1. ````./verify.sh --llm examples/example_15_dictionary.py --validate-translation````
 
+Run with local LLMs:
+
+1. ````./verify.sh jpl-examples/list_comprehension_complex.py --llm --model ollama/qwen2.5-coder:32b --direct````
+or 
+````./verify.sh jpl-examples/list_comprehension_complex.py --llm --model ollama/qwen2.5-coder:7b --direct````
+
+Note that running with a larger model will take longer to run, but will be more accurate.
