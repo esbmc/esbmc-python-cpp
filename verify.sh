@@ -17,6 +17,7 @@ TRANSLATION_MODE=""
 USE_ANALYSIS=false
 LIST_TEST_FUNCTIONS=""
 ANALYZED_FUNCTIONS=""
+ENABLE_TRACE=false
 DIRECT_TRANSLATION=false  # New flag for direct translation mode
 
 # Prompt file paths
@@ -43,6 +44,7 @@ show_usage() {
     echo "  --fast               Enable fast mode (adds --unwind 10 --no-unwinding-assertions)"
     echo "  --analyze            Analyze and test functions that may have errors"
     echo "  --direct             Use direct LLM translation (Python to C) without shedskin"
+    echo "  --trace               Enable tracing (calls ./trace.sh with the file path)"
     exit 1
 }
 
@@ -280,6 +282,7 @@ explain_violation() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         --docker) USE_DOCKER=true; shift ;;
+        --trace) ENABLE_TRACE=true; shift ;;
         --llm) USE_LLM=true; shift ;;
         --analyze) USE_ANALYSIS=true; shift ;;
         --direct) DIRECT_TRANSLATION=true; USE_LLM=true; shift ;;  # Added direct translation option
@@ -351,6 +354,25 @@ done
 
 [ -z "$FULLPATH" ] && show_usage
 [ ! -f "$FULLPATH" ] && { echo "Error: Source file $FULLPATH does not exist"; exit 1; }
+
+# If --trace is enabled, call trace.sh with the file path
+if [ "$ENABLE_TRACE" = true ]; then
+    if [ -x "./trace.sh" ]; then
+        echo "Running trace.sh on $FULLPATH..."
+        
+        # Run trace.sh and continue only if return is 0 (success)
+        ./trace.sh "$FULLPATH" | tee /dev/tty
+        TRACE_EXIT_CODE=$?
+
+        if [ $TRACE_EXIT_CODE -ne 0 ]; then
+            echo "Error: trace.sh failed with exit code $TRACE_EXIT_CODE. Aborting."
+            exit $TRACE_EXIT_CODE
+        fi
+    else
+        echo "Error: trace.sh not found or not executable"
+        exit 1
+    fi
+fi
 
 FILENAME=$(basename "$FULLPATH")
 BASENAME="${FILENAME%.*}"
