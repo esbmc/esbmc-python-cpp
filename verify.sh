@@ -17,6 +17,7 @@ TRANSLATION_MODE=""
 USE_ANALYSIS=false
 LIST_TEST_FUNCTIONS=""
 ANALYZED_FUNCTIONS=""
+DIRECT_TRANSLATION=false  # New flag for direct translation mode
 
 # Prompt file paths
 SOURCE_INSTRUCTION_FILE="prompts/python_prompt.txt"
@@ -24,7 +25,7 @@ VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
 EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
 
 show_usage() {
-    echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] <filename>"
+    echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] [--direct] <filename>"
     echo "Options:"
     echo "  --docker              Run ESBMC in Docker container"
     echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
@@ -41,6 +42,7 @@ show_usage() {
     echo "  --explain            Explain ESBMC violations in terms of source code"
     echo "  --fast               Enable fast mode (adds --unwind 10 --no-unwinding-assertions)"
     echo "  --analyze            Analyze and test functions that may have errors"
+    echo "  --direct             Use direct LLM translation (Python to C) without shedskin"
     exit 1
 }
 
@@ -51,7 +53,7 @@ analyze_code_for_errors() {
 
     exec 1>&1
     echo "Analyzing code for potential errors..." >&2
-    
+
     {
         echo "Analyze the following code and identify functions that might contain errors."
         echo ""
@@ -97,7 +99,7 @@ validate_translation() {
     local success=false
 
     echo "Validating translation in $validation_mode mode..."
-    
+
     local VALIDATION_LOG=$(mktemp)
     local COMBINED_FILE=$(mktemp)
 
@@ -110,7 +112,6 @@ validate_translation() {
             if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
                 for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
                     if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
-                        # echo "list of functions to be analyzed :  $func"
                         analysis_message+="   - Ensure function '$func' is correctly converted:\n"
                         analysis_message+="     * Same function name preserved in C\n"
                         analysis_message+="     * Equivalent parameter types and return type\n"
@@ -137,7 +138,7 @@ validate_translation() {
         aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
             --message-file "$VALIDATION_INSTRUCTION_FILE" \
             --read "$COMBINED_FILE" "$converted_file"
-            
+
         echo "Checking if code compiles..."
         if [ "$USE_DOCKER" = true ]; then
             CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
@@ -153,10 +154,10 @@ validate_translation() {
             echo "Requesting LLM to fix compilation errors and try again..."
             sleep 1
         fi
-        
+
         ((attempt++))
     done
-    
+
     rm -f "$VALIDATION_LOG" "$COMBINED_FILE"
     return 0
 }
@@ -176,7 +177,6 @@ attempt_llm_conversion() {
         if [ ! -z "$ANALYZED_FUNCTIONS" ]; then
             for func in $(echo "$ANALYZED_FUNCTIONS" | tr ',' ' '); do
                 if [[ $func =~ ^[a-zA-Z0-9_]+$ ]]; then
-                    # echo "Functions to be analyzed $func"
                     analysis_message+="   - Ensure function '$func' is correctly converted:\n"
                     analysis_message+="     * Same function name preserved in C\n"
                     analysis_message+="     * Equivalent parameter types and return type\n"
@@ -188,7 +188,11 @@ attempt_llm_conversion() {
     fi
 
     {
-        echo "Convert the following ${file_extension} code to C code that can be verified by ESBMC."
+        if [ "$DIRECT_TRANSLATION" = true ] && [ "$file_extension" = "py" ]; then
+            echo "Convert the following Python code directly to C code without using any intermediate steps."
+        else
+            echo "Convert the following ${file_extension} code to C code that can be verified by ESBMC."
+        fi
         echo "Ensure the core functionality and behavior is preserved."
         echo "The converted code should:"
         echo "1. Maintain all essential logic and algorithms"
@@ -208,7 +212,7 @@ attempt_llm_conversion() {
 
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
         echo "Attempt $attempt of $max_attempts to generate valid C code from ${file_extension}..."
-        
+
         if [ $attempt -eq 1 ]; then
             aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
                 --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
@@ -237,7 +241,7 @@ attempt_llm_conversion() {
             echo "ESBMC parse tree check failed on attempt $attempt"
             [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
         fi
-        
+
         ((attempt++))
     done
 
@@ -250,9 +254,9 @@ explain_violation() {
     local c_file=$2
     local violation_output=$3
     local temp_file=$(mktemp)
-    
+
     echo "Analyzing ESBMC violation..."
-    
+
     {
         echo "=== ORIGINAL SOURCE CODE ===" > "$temp_file"
         cat "$source_file" >> "$temp_file"
@@ -261,14 +265,14 @@ explain_violation() {
         echo -e "\n=== ESBMC VIOLATION (LAST 30 LINES) ===" >> "$temp_file"
         echo "$violation_output" | tail -n 30 >> "$temp_file"
     }
-    
+
     echo "Requesting explanation from LLM..."
     echo "----------------------------------------"
-    
+
     aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
         --message-file "$EXPLANATION_INSTRUCTION_FILE" \
         --read "$temp_file"
-    
+
     rm "$temp_file"
 }
 
@@ -278,6 +282,7 @@ while [[ $# -gt 0 ]]; do
         --docker) USE_DOCKER=true; shift ;;
         --llm) USE_LLM=true; shift ;;
         --analyze) USE_ANALYSIS=true; shift ;;
+        --direct) DIRECT_TRANSLATION=true; USE_LLM=true; shift ;;  # Added direct translation option
         --validate-translation)
             case "$2" in
                 partial|complete)
@@ -375,40 +380,50 @@ cd "$TEMP_DIR"
 
 # Process the input file
 if [ "$EXTENSION" = "py" ]; then
-    echo "Processing Python file with shedskin..."
-    shedskin translate "$FILENAME"
-    SHEDSKIN_EXIT=$?
-    
-    if [ $SHEDSKIN_EXIT -eq 0 ]; then
-        echo "Shedskin conversion successful"
-        if [ -f "${BASENAME}.cpp" ]; then
-            if [ "$USE_LLM" = true ]; then
-                echo "Converting shedskin C++ output to C..."
-                if attempt_llm_conversion "${BASENAME}.cpp" "${BASENAME}.c"; then
-                    TARGET_FILE="${BASENAME}.c"
-                else
-                    echo "Failed to convert shedskin output to C"
-                    exit 1
-                fi
-            else
-                TARGET_FILE="${BASENAME}.cpp"
-            fi
+    if [ "$DIRECT_TRANSLATION" = true ]; then
+        echo "Using direct LLM translation from Python to C..."
+        if attempt_llm_conversion "$FILENAME" "${BASENAME}.c"; then
+            TARGET_FILE="${BASENAME}.c"
         else
-            echo "Error: Shedskin did not generate expected output"
+            echo "Failed to convert Python to C using direct translation"
             exit 1
         fi
     else
-        if [ "$USE_LLM" = true ]; then
-            echo "Shedskin conversion failed, attempting LLM conversion..."
-            if attempt_llm_conversion "$FILENAME" "${BASENAME}.c"; then
-                TARGET_FILE="${BASENAME}.c"
+        echo "Processing Python file with shedskin..."
+        shedskin translate "$FILENAME"
+        SHEDSKIN_EXIT=$?
+
+        if [ $SHEDSKIN_EXIT -eq 0 ]; then
+            echo "Shedskin conversion successful"
+            if [ -f "${BASENAME}.cpp" ]; then
+                if [ "$USE_LLM" = true ]; then
+                    echo "Converting shedskin C++ output to C..."
+                    if attempt_llm_conversion "${BASENAME}.cpp" "${BASENAME}.c"; then
+                        TARGET_FILE="${BASENAME}.c"
+                    else
+                        echo "Failed to convert shedskin output to C"
+                        exit 1
+                    fi
+                else
+                    TARGET_FILE="${BASENAME}.cpp"
+                fi
             else
-                echo "Failed to convert Python to C"
+                echo "Error: Shedskin did not generate expected output"
                 exit 1
             fi
         else
-            echo "Error: Shedskin conversion failed and --llm option not specified"
-            exit 1
+            if [ "$USE_LLM" = true ]; then
+                echo "Shedskin conversion failed, attempting LLM conversion..."
+                if attempt_llm_conversion "$FILENAME" "${BASENAME}.c"; then
+                    TARGET_FILE="${BASENAME}.c"
+                else
+                    echo "Failed to convert Python to C"
+                    exit 1
+                fi
+            else
+                echo "Error: Shedskin conversion failed and --llm option not specified"
+                exit 1
+            fi
         fi
     fi
 else
@@ -453,7 +468,7 @@ fi
 
 ESBMC_CMD="esbmc --segfault-handler \
     -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
-    $TARGET_FILE --incremental-bmc --no-pointer-check --no-align-check --add-symex-value-sets $THREAD_OPTIONS"
+    $TARGET_FILE --incremental-bmc --no-bounds-check --no-pointer-check --no-align-check --add-symex-value-sets $THREAD_OPTIONS"
 
 # Function to run ESBMC for a specific function
 run_esbmc_for_function() {
@@ -463,13 +478,13 @@ run_esbmc_for_function() {
     local current_output_file=$(mktemp)
 
     print_esbmc_cmd "$current_opts"
-    
+
     echo "----------------------------------------"
     echo "Testing function: $function_name"
     echo "ESBMC command to be executed:"
     echo "$current_cmd"
     echo "----------------------------------------"
-    
+
     if [ "$USE_DOCKER" = true ]; then
         if [ ! -z "$CONTAINER_ID" ]; then
             docker exec "$CONTAINER_ID" mkdir -p /workspace
@@ -489,13 +504,13 @@ run_esbmc_for_function() {
         eval "$current_cmd" 2>&1 | tee "$current_output_file"
         local exit_code=${PIPESTATUS[0]}
     fi
-    
+
     # If verification failed and explanation was requested, explain the violation
     if [ $exit_code -ne 0 ] && [ "$EXPLAIN_VIOLATION" = true ]; then
         echo -e "\nAnalyzing verification failure for function: $function_name..."
         explain_violation "$FILENAME" "$TARGET_FILE" "$(cat $current_output_file)"
     fi
-    
+
     rm "$current_output_file"
     return $exit_code
 }
@@ -524,7 +539,7 @@ else
     ESBMC_CMD="$ESBMC_CMD $ESBMC_EXTRA_OPTS"
     print_esbmc_cmd "$ESBMC_CMD"
     ESBMC_OUTPUT_FILE=$(mktemp)
-    
+
     echo "Running ESBMC..."
     if [ "$USE_DOCKER" = true ]; then
         if [ ! -z "$CONTAINER_ID" ]; then
@@ -545,12 +560,12 @@ else
         eval "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
         OVERALL_EXIT=${PIPESTATUS[0]}
     fi
-    
+
     if [ $OVERALL_EXIT -ne 0 ] && [ "$EXPLAIN_VIOLATION" = true ]; then
         echo -e "\nAnalyzing verification failure..."
         explain_violation "$FILENAME" "$TARGET_FILE" "$(cat $ESBMC_OUTPUT_FILE)"
     fi
-    
+
     rm "$ESBMC_OUTPUT_FILE"
 fi
 
