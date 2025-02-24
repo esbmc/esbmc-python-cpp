@@ -30,6 +30,26 @@ Validate code translation, will validate the code translation, and adjust if not
 
 Run with local LLMs:
 
+First you need to install ollama:
+
+````brew install ollama````
+
+Then you should start with with 
+
+````ollama serve````
+
+Then you can look up models on this page:
+
+https://ollama.com/library
+
+You can pull a model with 
+
+````ollama pull <model_name>````
+
+Tested coding models are ````qwen2.5-coder:7b and qwen2.5-coder:32b````
+
+We will update with more tested models soon.
+
 1. ````./verify.sh jpl-examples/list_comprehension_complex.py --llm --model ollama/qwen2.5-coder:32b --direct````
 or 
 ````./verify.sh jpl-examples/list_comprehension_complex.py --llm --model ollama/qwen2.5-coder:7b --direct````
