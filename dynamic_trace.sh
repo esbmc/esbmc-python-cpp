@@ -476,11 +476,11 @@ convert_to_c() {
             # Use existing container
             docker exec "$CONTAINER_ID" mkdir -p /workspace
             debug_log "Using existing container: $CONTAINER_ID"
-        else
-            # Start a new container
-            CONTAINER_ID=$(docker run -d --rm -v "$TEMP_DIR":/workspace -w /workspace "$DOCKER_IMAGE" sleep 3600)
-            debug_log "Started new container: $CONTAINER_ID"
-            echo "🐳 Docker container started: $CONTAINER_ID (mounted $TEMP_DIR as /workspace)"
+        # else
+        #     # Start a new container
+        #     CONTAINER_ID=$(docker run -d --rm -v "$TEMP_DIR":/workspace -w /workspace "$DOCKER_IMAGE" sleep 3600)
+        #     debug_log "Started new container: $CONTAINER_ID"
+        #     echo "🐳 Docker container started: $CONTAINER_ID (mounted $TEMP_DIR as /workspace)"
         fi
     fi
 
@@ -493,7 +493,7 @@ convert_to_c() {
             TIMEOUT_CMD="gtimeout"
         else
             TIMEOUT_CMD=""
-fi
+        fi
         # Run aider to modify the C file (with a timeout)
         $TIMEOUT_CMD 180 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
             --message-file "$TEMP_PROMPT" --file "$output_file" || true
@@ -504,21 +504,28 @@ fi
         
         # Check if the generated C code is valid
         if [ "$USE_DOCKER" = true ]; then
-            echo "Checking C syntax in Docker..."
-            if [ "$USE_DOCKER" = true ]; then
-                CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
+
+            filename=$(basename "$output_file")
+            output_dir=$(dirname "$output_file")
+
+            # Montez le répertoire spécifique qui contient le fichier
+            if [ -n "$CONTAINER_ID" ]; then
+                # Pour un conteneur existant, copiez le fichier à l'intérieur
+                docker cp "$output_file" "$CONTAINER_ID:/workspace/$filename"
+                docker exec $CONTAINER_ID esbmc --parse-tree-only "/workspace/$filename"
+                result=$?
             else
-                CMDRUN="docker exec "$CONTAINER_ID" esbmc"
+                # Pour un nouveau conteneur, montez le répertoire contenant le fichier
+                docker run --rm -v "$output_dir:/workspace" $DOCKER_IMAGE esbmc --parse-tree-only "/workspace/$filename"
+                result=$?
             fi
 
-            $CMDRUN --parse-tree-only "/workspace/$C_FILE_NAME"
-            result=$?
 
             if [ $result -eq 0 ]; then
                 echo "✅ Successfully generated valid C code on attempt $attempt"
                 success=true
             else
-                echo "❌ ESBMC parse tree check failed on attempt $attempt Docker"
+                echo "❌ ESBMC parse tree check failed on attempt $attempt "
                 if [ $attempt -lt $max_attempts ]; then
                     echo "Retrying with additional instructions..."
                     # Add more specific instructions to fix syntax errors
