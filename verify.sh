@@ -17,7 +17,6 @@ TRANSLATION_MODE=""
 USE_ANALYSIS=false
 LIST_TEST_FUNCTIONS=""
 ANALYZED_FUNCTIONS=""
-ENABLE_TRACE=false
 DIRECT_TRANSLATION=false  # New flag for direct translation mode
 
 # Prompt file paths
