@@ -352,6 +352,7 @@ done
 [ -z "$FULLPATH" ] && show_usage
 [ ! -f "$FULLPATH" ] && { echo "Error: Source file $FULLPATH does not exist"; exit 1; }
 
+
 FILENAME=$(basename "$FULLPATH")
 BASENAME="${FILENAME%.*}"
 EXTENSION="${FILENAME##*.}"
