@@ -333,9 +333,60 @@ while true; do
         cp "$SCRIPT_PYTHON" "$TEMP_DIR/"
     fi
     
-    # Run Python trace in real-time using the copy in TEMP_DIR
+    # Create a custom trace wrapper script to filter system modules
+    cat > "$TEMP_DIR/trace_wrapper.py" <<EOF
+#!/usr/bin/env python3
+import sys
+import os
+import trace
+
+# Define directories and modules to ignore
+ignore_dirs = [sys.prefix, sys.exec_prefix]
+ignore_mods = ['os', 'sys', 're', 'time', 'datetime', 'collections', 
+               'json', 'random', 'math', 'itertools', 'functools', 
+               'typing', 'io', 'pathlib', 'traceback', 'warnings']
+
+# Initialize tracer with filtering
+tracer = trace.Trace(
+    ignoredirs=ignore_dirs,
+    ignoremods=ignore_mods,
+    trace=1,           # trace function calls
+    count=1,           # count function calls
+    countfuncs=1,      # count entries into functions
+    countcallers=1,    # track caller relationships
+    infile=None,       # no input trace data
+    outfile=None       # don't save counts to a file
+)
+
+# Get script name from command line
+if len(sys.argv) > 1:
+    script_path = sys.argv[1]
+    script_args = sys.argv[2:]
+    
+    # Set up command line args for the script
+    sys.argv = [script_path] + script_args
+    
+    # Run the script with tracing
+    with open(script_path) as fp:
+        code = compile(fp.read(), script_path, 'exec')
+        # Prepare globals dictionary with __file__ and __name__
+        globals_dict = {
+            '__file__': script_path,
+            '__name__': '__main__',
+            '__package__': None,
+            '__cached__': None,
+        }
+        tracer.runctx(code, globals_dict, globals_dict)
+else:
+    print("Error: No script specified")
+    sys.exit(1)
+EOF
+
+    chmod +x "$TEMP_DIR/trace_wrapper.py"
+    
+    # Run the custom trace wrapper instead of using Python's trace module directly
     cd "$TEMP_DIR"
-    python -m trace --trace --count -C "$TEMP_DIR" "$(basename "$SCRIPT_PYTHON")" 2>&1 | tee "$TRACE_OUTPUT"
+    python "$TEMP_DIR/trace_wrapper.py" "$(basename "$SCRIPT_PYTHON")" 2>&1 | tee "$TRACE_OUTPUT"
     cd - > /dev/null # Return to previous directory
 
     # Extract function names
