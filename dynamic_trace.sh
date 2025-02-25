@@ -413,6 +413,7 @@ EOF
     return 0
 }
 
+
 # Function to convert Python to C using LLM with multiple attempts
 convert_to_c() {
     local input_file="$SCRIPT_PYTHON"
@@ -486,8 +487,15 @@ convert_to_c() {
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
         echo "Attempt $attempt of $max_attempts to generate valid C code..."
 
+        if command -v timeout >/dev/null 2>&1; then
+            TIMEOUT_CMD="timeout"
+        elif command -v gtimeout >/dev/null 2>&1; then
+            TIMEOUT_CMD="gtimeout"
+        else
+            TIMEOUT_CMD=""
+fi
         # Run aider to modify the C file (with a timeout)
-        timeout 180 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+        $TIMEOUT_CMD 180 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
             --message-file "$TEMP_PROMPT" --file "$output_file" || true
         
         # Show the output file contents for debugging
@@ -497,11 +505,20 @@ convert_to_c() {
         # Check if the generated C code is valid
         if [ "$USE_DOCKER" = true ]; then
             echo "Checking C syntax in Docker..."
-            if docker exec "$CONTAINER_ID" esbmc --parse-tree-only "/workspace/$C_FILE_NAME" 2>/dev/null; then
+            if [ "$USE_DOCKER" = true ]; then
+                CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
+            else
+                CMDRUN="docker exec "$CONTAINER_ID" esbmc"
+            fi
+
+            $CMDRUN --parse-tree-only "/workspace/$C_FILE_NAME"
+            result=$?
+
+            if [ $result -eq 0 ]; then
                 echo "✅ Successfully generated valid C code on attempt $attempt"
                 success=true
             else
-                echo "❌ ESBMC parse tree check failed on attempt $attempt"
+                echo "❌ ESBMC parse tree check failed on attempt $attempt Docker"
                 if [ $attempt -lt $max_attempts ]; then
                     echo "Retrying with additional instructions..."
                     # Add more specific instructions to fix syntax errors
@@ -514,7 +531,9 @@ convert_to_c() {
             fi
         else
             # Local ESBMC
-            if esbmc --parse-tree-only "$output_file" 2>/dev/null; then
+            esbmc --parse-tree-only "$output_file"
+            result=$?
+            if [ $result -eq 0 ]; then
                 echo "✅ Successfully generated valid C code on attempt $attempt"
                 success=true
             else
