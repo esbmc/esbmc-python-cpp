@@ -441,6 +441,7 @@ convert_to_c() {
         echo "3. Use equivalent C data structures and types"
         echo "4. Include necessary headers and dependencies"
         echo "5. Only output proper C code that can be parsed by a C compiler"
+        cat "$SOURCE_INSTRUCTION_FILE"
         
         # Add list of functions we detected to focus on
         echo -e "\nImplement these functions identified during execution:"
@@ -515,8 +516,10 @@ convert_to_c() {
                 docker exec $CONTAINER_ID esbmc --parse-tree-only "/workspace/$filename"
                 result=$?
             else
+                echo "❌ Run in docker  $TEMP_DIR "
+                echo "❌ Run in docker  $TEMP_DIR "
                 # Pour un nouveau conteneur, montez le répertoire contenant le fichier
-                docker run --rm -v "$output_dir:/workspace" $DOCKER_IMAGE esbmc --parse-tree-only "/workspace/$filename"
+                docker run --rm -v $(pwd):/workspace -w /workspace "$DOCKER_IMAGE" esbmc --parse-tree-only "$filename"
                 result=$?
             fi
 
@@ -585,7 +588,7 @@ run_esbmc_for_function() {
         function_name="main"
     fi
     
-    local current_cmd="esbmc --function $function_name $C_FILE_NAME"
+    local current_cmd="esbmc --function $function_name \"$C_OUTPUT\""
 
     echo "----------------------------------------"
     echo "🛠️ Testing function: $function_name"
