@@ -516,8 +516,6 @@ convert_to_c() {
                 docker exec $CONTAINER_ID esbmc --parse-tree-only "/workspace/$filename"
                 result=$?
             else
-                echo "❌ Run in docker  $TEMP_DIR "
-                echo "❌ Run in docker  $TEMP_DIR "
                 # Pour un nouveau conteneur, montez le répertoire contenant le fichier
                 docker run --rm -v $(pwd):/workspace -w /workspace "$DOCKER_IMAGE" esbmc --parse-tree-only "$filename"
                 result=$?
