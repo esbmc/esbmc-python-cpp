@@ -99,6 +99,213 @@ extract_function_calls() {
     sort -u > "$FUNCTIONS_FILE"
 }
 
+# Wrapper function to assist with automatic dependency installation
+aider_wrapper() {
+    local message_file="$1"
+    local output_file="$2"
+    local model="$3"
+    
+    # Temporary file to store the output
+    local TEMP_OUTPUT=$(mktemp)
+    
+    # Detect the operating system
+    OS="unknown"
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        OS="linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+    elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
+        OS="windows"
+    fi
+    
+    debug_log "Detected operating system: $OS"
+    
+    # Check if a package manager is available
+    has_brew=false
+    has_apt=false
+    has_dnf=false
+    has_yum=false
+    has_pacman=false
+    has_choco=false
+    has_scoop=false
+    has_npm=false
+    has_pip=false
+    has_gem=false
+    has_cargo=false
+    
+    if command -v brew &> /dev/null; then
+        has_brew=true
+    fi
+    if command -v apt-get &> /dev/null; then
+        has_apt=true
+    fi
+    if command -v dnf &> /dev/null; then
+        has_dnf=true
+    fi
+    if command -v yum &> /dev/null; then
+        has_yum=true
+    fi
+    if command -v pacman &> /dev/null; then
+        has_pacman=true
+    fi
+    if command -v choco &> /dev/null; then
+        has_choco=true
+    fi
+    if command -v scoop &> /dev/null; then
+        has_scoop=true
+    fi
+    if command -v npm &> /dev/null; then
+        has_npm=true
+    fi
+    if command -v pip &> /dev/null || command -v pip3 &> /dev/null; then
+        has_pip=true
+    fi
+    if command -v gem &> /dev/null; then
+        has_gem=true
+    fi
+    if command -v cargo &> /dev/null; then
+        has_cargo=true
+    fi
+    
+    # Function to install a package with the appropriate manager
+    install_package() {
+        local package=$1
+        local manager=$2
+        
+        echo "Installing $package with $manager..."
+        
+        case $manager in
+            "brew")
+                brew install $package
+                ;;
+            "apt-get")
+                sudo apt-get install -y $package
+                ;;
+            "dnf")
+                sudo dnf install -y $package
+                ;;
+            "yum")
+                sudo yum install -y $package
+                ;;
+            "pacman")
+                sudo pacman -S --noconfirm $package
+                ;;
+            "choco")
+                choco install -y $package
+                ;;
+            "scoop")
+                scoop install $package
+                ;;
+            "npm")
+                npm install -g $package
+                ;;
+            "pip")
+                if command -v pip3 &> /dev/null; then
+                    pip3 install $package
+                else
+                    pip install $package
+                fi
+                ;;
+            "gem")
+                gem install $package
+                ;;
+            "cargo")
+                cargo install $package
+                ;;
+            *)
+                echo "Unsupported package manager: $manager"
+                ;;
+        esac
+    }
+    
+    if command -v timeout >/dev/null 2>&1; then
+        TIMEOUT_CMD="timeout"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        TIMEOUT_CMD="gtimeout"
+    else
+        TIMEOUT_CMD=""
+    fi
+    # Execute the original aider command and capture its output
+    debug_log "Running aider with the automatic installation wrapper..."
+    $TIMEOUT_CMD 180 aider --no-git --no-show-model-warnings --model "$model" --yes \
+      --message-file "$message_file" --file "$output_file" | tee "$TEMP_OUTPUT"
+    
+    debug_log "Searching for installation commands in the output..."
+    
+    # Define the package managers to search for
+    PACKAGE_MANAGERS=(
+        "brew install"
+        "apt-get install"p
+        "apt install"
+        "dnf install"
+        "yum install"
+        "pacman -S"
+        "choco install"
+        "scoop install"
+        "npm install -g"
+        "pip install"
+        "pip3 install"
+        "gem install"
+        "cargo install"
+    )
+    
+    # Search for and execute each type of installation command
+    for manager_cmd in "${PACKAGE_MANAGERS[@]}"; do
+        manager=$(echo $manager_cmd | cut -d' ' -f1)
+        if [[ "$manager" == "pacman" ]]; then
+            manager="pacman"
+        fi
+        if [[ "$manager" == "npm" ]]; then
+            manager="npm"
+        fi
+        if [[ "$manager" == "pip3" ]]; then
+            manager="pip"
+        fi
+        if [[ "$manager" == "apt" ]]; then
+            manager="apt-get"
+        fi
+        
+        # Check if the manager is available
+        var_name="has_$manager"
+        var_name=${var_name//-/_}  # Replace dashes with underscores
+        
+        if [[ ${!var_name} != true ]]; then
+            continue
+        fi
+        
+        # Find the installation commands for this manager
+        INSTALLS=$(grep -o "$manager_cmd [^ ]*" "$TEMP_OUTPUT" | sort | uniq)
+        
+        if [ ! -z "$INSTALLS" ]; then
+            echo "Detected $manager commands:"
+            echo "$INSTALLS"
+            echo "Automatically installing $manager packages..."
+            
+            for cmd in $INSTALLS; do
+                # Extract the package name (last word of the command)
+                package=$(echo $cmd | awk '{print $NF}')
+                install_package "$package" "$manager"
+            done
+        fi
+    done
+    
+    # Special case for Windows: look for more complex installation commands
+    if [[ "$OS" == "windows" ]]; then
+        # Search for Windows-specific installation lines
+        WIN_INSTALLS=$(grep -i "download and install" "$TEMP_OUTPUT" | grep -i "windows")
+        if [ ! -z "$WIN_INSTALLS" ]; then
+            echo "Detected Windows installation suggestions:"
+            echo "$WIN_INSTALLS"
+            echo "Please manually install these components."
+        fi
+    fi
+    
+    # Clean up the temporary file
+    rm -f "$TEMP_OUTPUT"
+    
+    debug_log "Automatic installation processing completed."
+}
+
 # Create the monkey-patching tracer script
 create_interceptor_script() {
     local py_script=$(basename "$SCRIPT_PYTHON")
@@ -488,16 +695,8 @@ convert_to_c() {
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
         echo "Attempt $attempt of $max_attempts to generate valid C code..."
 
-        if command -v timeout >/dev/null 2>&1; then
-            TIMEOUT_CMD="timeout"
-        elif command -v gtimeout >/dev/null 2>&1; then
-            TIMEOUT_CMD="gtimeout"
-        else
-            TIMEOUT_CMD=""
-        fi
         # Run aider to modify the C file (with a timeout)
-        $TIMEOUT_CMD 180 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
-            --message-file "$TEMP_PROMPT" --file "$output_file" || true
+        aider_wrapper "$TEMP_PROMPT" "$output_file" "$LLM_MODEL" || true
         
         # Show the output file contents for debugging
         debug_log "C code after aider (first 20 lines):"
