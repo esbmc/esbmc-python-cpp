@@ -12,7 +12,7 @@ ESBMC_CMD="esbmc"
 DEBUG=true
 
 show_usage() {
-    echo "Usage: ./trace.sh [--docker]  [--image IMAGE_NAME | --container CONTAINER_ID] [--model MODEL_NAME] <filename>"
+    echo "Usage: ./dynamic_trace.sh [--docker]  [--image IMAGE_NAME | --container CONTAINER_ID] [--model MODEL_NAME] <filename>"
     echo "Options:"
     echo "  --docker              Run ESBMC in Docker container"
     echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
@@ -97,6 +97,97 @@ extract_function_calls() {
     sed -E 's/.*call function: ([a-zA-Z0-9_]+).*|.*funcname: ([a-zA-Z0-9_]+).*/\1\2/' | 
     grep -v "^$" | grep -v "^<" | grep -v "^_" | 
     sort -u > "$FUNCTIONS_FILE"
+}
+
+# Analyse statique des fonctions dans un fichier Python
+extract_functions_statically() {
+    local py_file="$1"
+    local output_file="$2"
+    
+    # Créer un script Python temporaire pour l'analyse
+    local temp_py_script="$TEMP_DIR/extract_functions.py"
+    
+    cat > "$temp_py_script" <<EOF
+#!/usr/bin/env python3
+import re
+import sys
+import os
+import ast
+
+def extract_functions_from_file(file_path):
+    """Extrait les définitions de fonctions d'un fichier Python."""
+    try:
+        with open(file_path, 'r') as f:
+            content = f.read()
+        
+        # Liste pour stocker les noms de fonctions
+        functions = []
+        
+        # Utiliser AST pour une analyse plus précise
+        try:
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    if not node.name.startswith('_'):
+                        functions.append(node.name)
+                elif isinstance(node, ast.ClassDef):
+                    functions.append(node.name)
+                    # Extraire les méthodes de classe
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            if not item.name.startswith('_'):
+                                functions.append(item.name)
+        except SyntaxError:
+            # Repli sur regex si l'analyse AST échoue
+            function_pattern = r'^\s*def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\('
+            class_pattern = r'^\s*class\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+            method_pattern = r'^\s+def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\('
+            
+            functions = re.findall(function_pattern, content, re.MULTILINE)
+            functions += re.findall(class_pattern, content, re.MULTILINE)
+            methods = re.findall(method_pattern, content, re.MULTILINE)
+            
+            # Filtrer les fonctions privées
+            functions = [f for f in functions if not f.startswith('_')]
+            methods = [m for m in methods if not m.startswith('_')]
+            functions += methods
+        
+        # Éliminer les doublons
+        functions = list(set(functions))
+        
+        return functions
+    except Exception as e:
+        print(f"Erreur lors de l'analyse du fichier: {e}", file=sys.stderr)
+        return []
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: python extract_functions.py <file_path> <output_file>", file=sys.stderr)
+        sys.exit(1)
+    
+    file_path = sys.argv[1]
+    output_file = sys.argv[2]
+    
+    functions = extract_functions_from_file(file_path)
+    
+    print(f"Fonctions trouvées ({len(functions)}):")
+    for func in sorted(functions):
+        print(f"funcname: {func}")
+    
+    # Écrire les fonctions dans un fichier
+    with open(output_file, 'w') as f:
+        for func in sorted(functions):
+            f.write(f"{func}\n")
+    
+    print(f"\nFonctions écrites dans {output_file}")
+EOF
+
+    chmod +x "$temp_py_script"
+    
+    # Exécuter le script Python et enregistrer les résultats dans le fichier de sortie
+    python3 "$temp_py_script" "$py_file" "$output_file" | tee -a "$TRACE_OUTPUT"
+    
+    echo "Analyse statique terminée pour $py_file"
 }
 
 # Wrapper function to assist with automatic dependency installation
@@ -235,7 +326,7 @@ aider_wrapper() {
     # Define the package managers to search for
     PACKAGE_MANAGERS=(
         "brew install"
-        "apt-get install"p
+        "apt-get install"
         "apt install"
         "dnf install"
         "yum install"
@@ -301,7 +392,7 @@ aider_wrapper() {
     fi
     
     # Clean up the temporary file
-    rm -f "$TEMP_OUTPUT"
+    # rm -f "$TEMP_OUTPUT"
     
     debug_log "Automatic installation processing completed."
 }
@@ -473,10 +564,11 @@ EOF
     echo "Created interception wrapper at $wrapper_script"
 }
 
-# Alternative approach using sys.settrace
+# Alternative approach using sys.settrace - CORRECTED VERSION
 create_trace_hook_script() {
     local py_script=$(basename "$SCRIPT_PYTHON")
     local hook_script="$TEMP_DIR/trace_hook.py"
+    local full_path=$(realpath "$SCRIPT_PYTHON")
     
     cat > "$hook_script" <<EOF
 #!/usr/bin/env python3
@@ -487,8 +579,9 @@ import traceback
 import time
 import inspect
 
-# Original script path
-TARGET_SCRIPT = "$py_script"
+# Original script path - USING ABSOLUTE PATH
+TARGET_SCRIPT = "$full_path"
+TARGET_SCRIPT_BASENAME = "$(basename "$SCRIPT_PYTHON")"
 
 # Global state
 PAUSED = False
@@ -533,8 +626,15 @@ def trace_calls(frame, event, arg):
         func_name = frame.f_code.co_name
         filename = frame.f_code.co_filename
         
+        # Improved check for matching our target script
+        is_target_file = (
+            TARGET_SCRIPT == filename or
+            TARGET_SCRIPT_BASENAME == os.path.basename(filename) or
+            TARGET_SCRIPT_BASENAME in filename
+        )
+        
         # Only trace user functions from our script
-        if TARGET_SCRIPT in filename and not func_name.startswith('_') and func_name not in TRACED_FUNCTIONS:
+        if is_target_file and not func_name.startswith('_') and func_name not in TRACED_FUNCTIONS:
             if CALL_COUNT < MAX_CALLS:
                 print(f"funcname: {func_name}")
                 TRACED_FUNCTIONS.add(func_name)
@@ -548,26 +648,49 @@ def trace_calls(frame, event, arg):
 # Setup trace hook
 sys.settrace(trace_calls)
 
+# Check if the script exists before trying to execute it
+if not os.path.exists(TARGET_SCRIPT):
+    print(f"Error: Script file {TARGET_SCRIPT} does not exist.")
+    sys.exit(1)
+
 # Execute the target script
 try:
+    print(f"Starting execution of {TARGET_SCRIPT}")
+    
+    # Try to load dependencies that might be needed
+    try:
+        import botocore
+        print("Successfully imported botocore")
+    except ImportError:
+        print("Warning: botocore module not available, this might cause errors if needed")
+    
+    # Read the script content
     with open(TARGET_SCRIPT) as f:
         script_content = f.read()
     
     # Set up globals for execution
     script_globals = {
         '__file__': TARGET_SCRIPT,
-        '__name__': '__main__'
+        '__name__': '__main__',
     }
     
-    # Execute the script
-    print(f"Starting execution of {TARGET_SCRIPT}")
-    exec(script_content, script_globals)
-    print("Script execution completed")
+    # Execute the script with error handling
+    try:
+        exec(script_content, script_globals)
+        print("Script execution completed")
+    except ImportError as e:
+        print(f"Import error during execution: {e}")
+        print("This is likely due to missing dependencies.")
+        print("Consider installing the required packages or using static analysis instead.")
+        traceback.print_exc()
+    except Exception as e:
+        print(f"Error during script execution: {e}")
+        traceback.print_exc()
     
 except KeyboardInterrupt:
     print("\nScript execution interrupted")
 except Exception as e:
-    print(f"Error during script execution: {e}")
+    print(f"Error preparing script execution: {e}")
     traceback.print_exc()
 EOF
 
@@ -620,7 +743,6 @@ EOF
     return 0
 }
 
-
 # Function to convert Python to C using LLM with multiple attempts
 convert_to_c() {
     local input_file="$SCRIPT_PYTHON"
@@ -648,7 +770,13 @@ convert_to_c() {
         echo "3. Use equivalent C data structures and types"
         echo "4. Include necessary headers and dependencies"
         echo "5. Only output proper C code that can be parsed by a C compiler"
-        cat "$SOURCE_INSTRUCTION_FILE"
+        
+        # Add source instruction file if it exists
+        if [ -f "$SOURCE_INSTRUCTION_FILE" ]; then
+            cat "$SOURCE_INSTRUCTION_FILE"
+        else
+            echo "Note: Additional instruction file was not found."
+        fi
         
         # Add list of functions we detected to focus on
         echo -e "\nImplement these functions identified during execution:"
@@ -676,7 +804,7 @@ convert_to_c() {
         cat "$output_file"
     } > "$TEMP_PROMPT"
 
-    echo "📤 Sending code to LLM for conversion..."
+    echo "📤 Sending code to LLM for conversion... : $TEMP_PROMPT"
 
     # Prepare Docker for testing if needed
     if [ "$USE_DOCKER" = true ]; then
@@ -704,7 +832,6 @@ convert_to_c() {
         
         # Check if the generated C code is valid
         if [ "$USE_DOCKER" = true ]; then
-
             filename=$(basename "$output_file")
             output_dir=$(dirname "$output_file")
 
@@ -719,7 +846,6 @@ convert_to_c() {
                 docker run --rm -v $(pwd):/workspace -w /workspace "$DOCKER_IMAGE" esbmc --parse-tree-only "$filename"
                 result=$?
             fi
-
 
             if [ $result -eq 0 ]; then
                 echo "✅ Successfully generated valid C code on attempt $attempt"
@@ -766,7 +892,7 @@ convert_to_c() {
         echo "🐳 Docker container stopped: $CONTAINER_ID"
     fi
     
-    rm -f "$TEMP_PROMPT"
+    # rm -f "$TEMP_PROMPT"
     
     if [ "$success" = true ]; then
         echo "✅ LLM conversion completed successfully."
@@ -805,113 +931,180 @@ run_esbmc_for_function() {
     fi
 }
 
-# Function to run the interactive tracing session using sys.settrace
+# Helper function to show user options
+show_user_options() {
+    # Show last 10 lines of program output
+    echo -e "\nLast 10 lines of program output:"
+    if [ -s "$PROGRAM_OUTPUT" ]; then
+        tail -n 10 "$PROGRAM_OUTPUT"
+    else
+        echo "No program output available."
+    fi
+    
+    # Ask user what to do
+    echo -e "\nOptions:"
+    echo "  1) Convert to C and verify with ESBMC"
+    echo "  2) Resume tracing"
+    echo "  3) Exit tracing and cleanup"
+    read -p "Enter option (1-3): " OPTION
+    
+    case $OPTION in
+        1)
+            # Convert and verify
+            convert_to_c
+            while read -r function_name; do
+                if [[ -n "$function_name" ]]; then
+                    run_esbmc_for_function "$function_name"
+                fi
+            done < "$FUNCTIONS_FILE"
+            
+            # Ask whether to resume or exit
+            read -p "Resume tracing? (y/n): " RESUME
+            if [[ "$RESUME" =~ ^[Yy]$ ]]; then
+                if [ -n "$TRACE_PID" ] && kill -0 $TRACE_PID 2>/dev/null; then
+                    kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
+                    echo "▶️ Resuming trace collection..."
+                else
+                    echo "Trace process is not running anymore."
+                fi
+            else
+                if [ -n "$TRACE_PID" ] && kill -0 $TRACE_PID 2>/dev/null; then
+                    kill -SIGUSR2 $TRACE_PID 2>/dev/null || true  # Exit
+                    wait $TRACE_PID 2>/dev/null || true
+                fi
+                echo "✅ Analysis completed."
+                return 0
+            fi
+            ;;
+        2)
+            # Resume tracing
+            if [ -n "$TRACE_PID" ] && kill -0 $TRACE_PID 2>/dev/null; then
+                kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
+                echo "▶️ Resuming trace collection..."
+            else
+                echo "Trace process is not running anymore."
+            fi
+            ;;
+        3)
+            # Exit tracing
+            if [ -n "$TRACE_PID" ] && kill -0 $TRACE_PID 2>/dev/null; then
+                kill -SIGUSR2 $TRACE_PID 2>/dev/null || true  # Exit
+                wait $TRACE_PID 2>/dev/null || true
+            fi
+            echo "✅ Analysis completed."
+            return 0
+            ;;
+        *)
+            echo "Invalid option, resuming trace collection..."
+            if [ -n "$TRACE_PID" ] && kill -0 $TRACE_PID 2>/dev/null; then
+                kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
+            fi
+            ;;
+    esac
+}
+
+# Function to run the interactive tracing session using sys.settrace and static analysis
 run_tracing_session() {
     local py_script="$(basename "$SCRIPT_PYTHON")"
     
     echo "📌 Starting tracing for $SCRIPT_PYTHON..."
     
-    # Create trace hook script for better function tracking
-    create_trace_hook_script
+    # Essayez d'abord l'analyse statique (nouvelle approche)
+    echo "🔍 Performing static analysis first..."
+    extract_functions_statically "$SCRIPT_PYTHON" "$FUNCTIONS_FILE"
     
-    # Run the trace script
-    cd "$TEMP_DIR"
-    python3 "trace_hook.py" 2>&1 | tee "$TRACE_OUTPUT" &
-    TRACE_PID=$!
-    
-    echo "📊 Tracing started with PID: $TRACE_PID"
-    echo "- Press Enter to pause and analyze current trace"
-    
-    # Loop to allow interactive pausing and analysis
-    while true; do
-        read -t 1 || true  # Non-blocking read with 1-second timeout
+    # Vérifiez si l'analyse statique a trouvé des fonctions
+    if [ -s "$FUNCTIONS_FILE" ]; then
+        echo "✅ Static analysis found $(wc -l < "$FUNCTIONS_FILE") functions."
+        echo "Detected functions:"
+        cat "$FUNCTIONS_FILE"
         
-        if [ $? -eq 0 ]; then
-            # User pressed Enter, pause tracing and analyze
-            kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Send pause signal
-            echo "⏸️ Pausing trace collection..."
-            sleep 1  # Wait for pause to take effect
+        # Afficher les options directement si l'analyse statique a réussi
+        show_user_options
+    else
+        echo "⚠️ Static analysis didn't find any functions. Falling back to dynamic tracing."
+        
+        # Créer le script de trace et essayer le traçage dynamique
+        create_trace_hook_script
+        
+        # Run the trace script
+        cd "$TEMP_DIR"
+        python3 "trace_hook.py" 2>&1 | tee "$TRACE_OUTPUT" &
+        TRACE_PID=$!
+        
+        echo "📊 Tracing started with PID: $TRACE_PID"
+        echo "- Press Enter to pause and analyze current trace"
+        
+        # Loop to allow interactive pausing and analysis
+        while true; do
+            read -t 1 || true  # Non-blocking read with 1-second timeout
             
-            # Extract functions from current trace
-            extract_function_calls
-            
-            # Extract program output (non-trace lines)
-            grep -v "funcname:" "$TRACE_OUTPUT" | grep -v "call function:" > "$PROGRAM_OUTPUT"
-            
-            # Check if we have any functions
-            if [ ! -s "$FUNCTIONS_FILE" ]; then
-                echo "⚠️ No functions detected in trace so far."
-                echo "Please let the program run longer or check if tracing is working correctly."
+            if [ $? -eq 0 ]; then
+                # User pressed Enter, pause tracing and analyze
+                kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Send pause signal
+                echo "⏸️ Pausing trace collection..."
+                sleep 1  # Wait for pause to take effect
                 
-                # Show last 20 lines of trace output for debugging
-                echo "Last 20 lines of trace output:"
-                tail -n 20 "$TRACE_OUTPUT"
-            else
-                # Show detected functions
-                echo "Detected functions so far:"
-                cat "$FUNCTIONS_FILE"
-            fi
-            
-            # Show last 10 lines of program output
-            echo -e "\nLast 10 lines of program output:"
-            grep -v "funcname:" "$TRACE_OUTPUT" | grep -v "call function:" | tail -n 10
-            
-            # Ask user what to do
-            echo -e "\nOptions:"
-            echo "  1) Convert to C and verify with ESBMC"
-            echo "  2) Resume tracing"
-            echo "  3) Exit tracing and cleanup"
-            read -p "Enter option (1-3): " OPTION
-            
-            case $OPTION in
-                1)
-                    # Convert and verify
-                    convert_to_c
-                    while read -r function_name; do
-                        if [[ -n "$function_name" ]]; then
-                            run_esbmc_for_function "$function_name"
-                        fi
-                    done < "$FUNCTIONS_FILE"
-                    
-                    # Ask whether to resume or exit
-                    read -p "Resume tracing? (y/n): " RESUME
-                    if [[ "$RESUME" =~ ^[Yy]$ ]]; then
-                        kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
-                        echo "▶️ Resuming trace collection..."
-                    else
-                        kill -SIGUSR2 $TRACE_PID 2>/dev/null || true  # Exit
-                        wait $TRACE_PID 2>/dev/null || true
-                        echo "✅ Tracing completed."
-                        break
-                    fi
-                    ;;
-                2)
-                    # Resume tracing
-                    kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
-                    echo "▶️ Resuming trace collection..."
-                    ;;
-                3)
-                    # Exit tracing
-                    kill -SIGUSR2 $TRACE_PID 2>/dev/null || true  # Exit
-                    wait $TRACE_PID 2>/dev/null || true
-                    echo "✅ Tracing completed."
+                # Extract functions from current trace
+                extract_function_calls
+                
+                # Si le traçage dynamique échoue, réessayer avec l'analyse statique
+                if [ ! -s "$FUNCTIONS_FILE" ]; then
+                    echo "⚠️ No functions detected in trace. Using static analysis instead."
+                    extract_functions_statically "$SCRIPT_PYTHON" "$FUNCTIONS_FILE"
+                fi
+                
+                # Extract program output (non-trace lines)
+                grep -v "funcname:" "$TRACE_OUTPUT" | grep -v "call function:" > "$PROGRAM_OUTPUT"
+                
+                # Check if we have any functions
+                if [ ! -s "$FUNCTIONS_FILE" ]; then
+                    echo "⚠️ No functions detected by either method."
+                    echo "Last 20 lines of trace output:"
+                    tail -n 20 "$TRACE_OUTPUT"
+                else
+                    # Show detected functions
+                    echo "Detected functions:"
+                    cat "$FUNCTIONS_FILE"
+                fi
+                
+                # Afficher les options pour l'utilisateur
+                show_user_options
+                
+                # Check if trace process is still running
+                if ! kill -0 $TRACE_PID 2>/dev/null; then
+                    echo "Trace process has ended."
                     break
-                    ;;
-                *)
-                    echo "Invalid option, resuming trace collection..."
-                    kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
-                    ;;
-            esac
-        fi
+                fi
+            else
+                # Check if trace process is still running
+                if ! kill -0 $TRACE_PID 2>/dev/null; then
+                    echo "Trace process has ended."
+                    
+                    # Si le traçage s'est terminé sans trouver de fonctions, utiliser l'analyse statique
+                    if [ ! -s "$FUNCTIONS_FILE" ]; then
+                        echo "⚠️ Dynamic tracing completed without finding functions. Using static analysis."
+                        extract_functions_statically "$SCRIPT_PYTHON" "$FUNCTIONS_FILE"
+                        
+                        if [ -s "$FUNCTIONS_FILE" ]; then
+                            echo "✅ Static analysis found $(wc -l < "$FUNCTIONS_FILE") functions."
+                            echo "Detected functions:"
+                            cat "$FUNCTIONS_FILE"
+                            
+                            # Montrer les options maintenant que nous avons des fonctions
+                            show_user_options
+                        else
+                            echo "❌ No functions detected by any method. Cannot proceed with analysis."
+                        fi
+                    fi
+                    
+                    break
+                fi
+            fi
+        done
         
-        # Check if trace process is still running
-        if ! kill -0 $TRACE_PID 2>/dev/null; then
-            echo "Trace process has ended."
-            break
-        fi
-    done
-    
-    cd - > /dev/null # Return to previous directory
+        cd - > /dev/null # Return to previous directory
+    fi
 }
 
 # Main tracing loop
@@ -926,6 +1119,7 @@ while true; do
             [Yy]) break ;;  # Restart loop
             [Nn]) 
                 echo "✅ Tracing completed."
+                # Uncomment to remove temp files if needed
                 rm -rf "$TEMP_DIR" "$TRACE_OUTPUT" "$FUNCTIONS_FILE" "$PROGRAM_OUTPUT" "$LLM_INPUT"
                 exit 0 
                 ;;
