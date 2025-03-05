@@ -18,6 +18,87 @@ check_rpm_package() {
     return $?
 }
 
+install_timeout() {
+    echo "🔍 Checking for 'timeout' command..."
+
+    # Check if timeout is available
+    if command -v timeout >/dev/null 2>&1; then
+        echo "✅ 'timeout' is already installed."
+        return
+    fi
+
+    # macOS: Install GNU coreutils for timeout
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "🍏 Detected macOS: Installing GNU coreutils..."
+        if ! command -v brew >/dev/null 2>&1; then
+            echo "🚨 Homebrew not found! Installing Homebrew first..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        fi
+        brew install coreutils
+        export PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH"
+        echo "✅ Installed 'gtimeout' as 'timeout'."
+        return
+    fi
+
+    # Linux: Install coreutils package
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        echo "🐧 Detected Linux: Installing coreutils..."
+        if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y coreutils
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y coreutils
+        elif command -v pacman >/dev/null 2>&1; then
+            sudo pacman -S --noconfirm coreutils
+        else
+            echo "❌ Unsupported Linux package manager. Please install 'coreutils' manually."
+            exit 1
+        fi
+        echo "✅ Installed 'timeout'."
+        return
+    fi
+
+    # Windows: Install GNU coreutils in WSL (if available)
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+        echo "🪟 Detected Windows (WSL/Cygwin): Installing coreutils..."
+        if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y coreutils
+        else
+            echo "❌ Cannot install coreutils automatically. Please install manually from https://gnuwin32.sourceforge.net/packages/coreutils.htm"
+            exit 1
+        fi
+        echo "✅ Installed 'timeout'."
+        return
+    fi
+
+    echo "❌ Could not detect a supported operating system."
+    exit 1
+}
+
+check_timeout() {
+    echo "🔍 Checking if 'timeout' works..."
+    
+    # Test timeout command with a simple sleep
+    if timeout 1 sleep 2 >/dev/null 2>&1; then
+        echo "✅ 'timeout' works correctly."
+        return 0
+    fi
+
+    # macOS: Check if gtimeout is available
+    if gtimeout 1 sleep 2 >/dev/null 2>&1; then
+        echo "✅ 'gtimeout' (GNU timeout) works correctly."
+        export TIMEOUT_CMD="gtimeout"
+        return 0
+    fi
+
+    # If timeout is missing or not working, return failure
+    echo "⚠️ 'timeout' is missing or not working."
+    return 1
+}
+
+if ! check_timeout; then
+    install_timeout
+fi
+
 # Detect operating system
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS

@@ -12,7 +12,7 @@ ESBMC_CMD="esbmc"
 DEBUG=true
 
 show_usage() {
-    echo "Usage: ./trace.sh [--docker]  [--image IMAGE_NAME | --container CONTAINER_ID] [--model MODEL_NAME] <filename>"
+    echo "Usage: ./dynamic_trace.sh [--docker]  [--image IMAGE_NAME | --container CONTAINER_ID] [--model MODEL_NAME] <filename>"
     echo "Options:"
     echo "  --docker              Run ESBMC in Docker container"
     echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
@@ -93,10 +93,217 @@ fi
 # Function to extract executed functions from trace output
 extract_function_calls() {
     # Extract functions from the trace file, filter out system functions
-    cat "$TRACE_OUTPUT" | grep -E "call function|funcname:" | 
-    sed -E 's/.*call function: ([a-zA-Z0-9_]+).*|.*funcname: ([a-zA-Z0-9_]+).*/\1\2/' | 
-    grep -v "^$" | grep -v "^<" | grep -v "^_" | 
+    cat "$TRACE_OUTPUT" | grep -E "^funcname: " | 
+    sed -E 's/^funcname: ([a-zA-Z0-9_<>]+)$/\1/' | 
+    grep -v "^$" | grep -v "^<" | 
     sort -u > "$FUNCTIONS_FILE"
+}
+
+# Wrapper function to assist with automatic dependency installation
+aider_wrapper() {
+    local message_file="$1"
+    local output_file="$2"
+    local model="$3"
+    
+    # Temporary file to store the output
+    local TEMP_OUTPUT=$(mktemp)
+    
+    # Detect the operating system
+    OS="unknown"
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        OS="linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+    elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
+        OS="windows"
+    fi
+    
+    debug_log "Detected operating system: $OS"
+    
+    # Check if a package manager is available
+    has_brew=false
+    has_apt=false
+    has_dnf=false
+    has_yum=false
+    has_pacman=false
+    has_choco=false
+    has_scoop=false
+    has_npm=false
+    has_pip=false
+    has_gem=false
+    has_cargo=false
+    
+    if command -v brew &> /dev/null; then
+        has_brew=true
+    fi
+    if command -v apt-get &> /dev/null; then
+        has_apt=true
+    fi
+    if command -v dnf &> /dev/null; then
+        has_dnf=true
+    fi
+    if command -v yum &> /dev/null; then
+        has_yum=true
+    fi
+    if command -v pacman &> /dev/null; then
+        has_pacman=true
+    fi
+    if command -v choco &> /dev/null; then
+        has_choco=true
+    fi
+    if command -v scoop &> /dev/null; then
+        has_scoop=true
+    fi
+    if command -v npm &> /dev/null; then
+        has_npm=true
+    fi
+    if command -v pip &> /dev/null || command -v pip3 &> /dev/null; then
+        has_pip=true
+    fi
+    if command -v gem &> /dev/null; then
+        has_gem=true
+    fi
+    if command -v cargo &> /dev/null; then
+        has_cargo=true
+    fi
+    
+    # Function to install a package with the appropriate manager
+    install_package() {
+        local package=$1
+        local manager=$2
+        
+        echo "Installing $package with $manager..."
+        
+        case $manager in
+            "brew")
+                brew install $package
+                ;;
+            "apt-get")
+                sudo apt-get install -y $package
+                ;;
+            "dnf")
+                sudo dnf install -y $package
+                ;;
+            "yum")
+                sudo yum install -y $package
+                ;;
+            "pacman")
+                sudo pacman -S --noconfirm $package
+                ;;
+            "choco")
+                choco install -y $package
+                ;;
+            "scoop")
+                scoop install $package
+                ;;
+            "npm")
+                npm install -g $package
+                ;;
+            "pip")
+                if command -v pip3 &> /dev/null; then
+                    pip3 install $package
+                else
+                    pip install $package
+                fi
+                ;;
+            "gem")
+                gem install $package
+                ;;
+            "cargo")
+                cargo install $package
+                ;;
+            *)
+                echo "Unsupported package manager: $manager"
+                ;;
+        esac
+    }
+    
+    if command -v timeout >/dev/null 2>&1; then
+        TIMEOUT_CMD="timeout"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        TIMEOUT_CMD="gtimeout"
+    else
+        TIMEOUT_CMD=""
+    fi
+    # Execute the original aider command and capture its output
+    debug_log "Running aider with the automatic installation wrapper..."
+    $TIMEOUT_CMD 180 aider --no-git --no-show-model-warnings --model "$model" --yes \
+      --message-file "$message_file" --file "$output_file" | tee "$TEMP_OUTPUT"
+    
+    debug_log "Searching for installation commands in the output..."
+    
+    # Define the package managers to search for
+    PACKAGE_MANAGERS=(
+        "brew install"
+        "apt-get install"
+        "apt install"
+        "dnf install"
+        "yum install"
+        "pacman -S"
+        "choco install"
+        "scoop install"
+        "npm install -g"
+        "pip install"
+        "pip3 install"
+        "gem install"
+        "cargo install"
+    )
+    
+    # Search for and execute each type of installation command
+    for manager_cmd in "${PACKAGE_MANAGERS[@]}"; do
+        manager=$(echo $manager_cmd | cut -d' ' -f1)
+        if [[ "$manager" == "pacman" ]]; then
+            manager="pacman"
+        fi
+        if [[ "$manager" == "npm" ]]; then
+            manager="npm"
+        fi
+        if [[ "$manager" == "pip3" ]]; then
+            manager="pip"
+        fi
+        if [[ "$manager" == "apt" ]]; then
+            manager="apt-get"
+        fi
+        
+        # Check if the manager is available
+        var_name="has_$manager"
+        var_name=${var_name//-/_}  # Replace dashes with underscores
+        
+        if [[ ${!var_name} != true ]]; then
+            continue
+        fi
+        
+        # Find the installation commands for this manager
+        INSTALLS=$(grep -o "$manager_cmd [^ ]*" "$TEMP_OUTPUT" | sort | uniq)
+        
+        if [ ! -z "$INSTALLS" ]; then
+            echo "Detected $manager commands:"
+            echo "$INSTALLS"
+            echo "Automatically installing $manager packages..."
+            
+            for cmd in $INSTALLS; do
+                # Extract the package name (last word of the command)
+                package=$(echo $cmd | awk '{print $NF}')
+                install_package "$package" "$manager"
+            done
+        fi
+    done
+    
+    # Special case for Windows: look for more complex installation commands
+    if [[ "$OS" == "windows" ]]; then
+        # Search for Windows-specific installation lines
+        WIN_INSTALLS=$(grep -i "download and install" "$TEMP_OUTPUT" | grep -i "windows")
+        if [ ! -z "$WIN_INSTALLS" ]; then
+            echo "Detected Windows installation suggestions:"
+            echo "$WIN_INSTALLS"
+            echo "Please manually install these components."
+        fi
+    fi
+    
+    # Clean up the temporary file
+    rm -f "$TEMP_OUTPUT"
+    
+    debug_log "Automatic installation processing completed."
 }
 
 # Create the monkey-patching tracer script
@@ -270,97 +477,97 @@ EOF
 create_trace_hook_script() {
     local py_script=$(basename "$SCRIPT_PYTHON")
     local hook_script="$TEMP_DIR/trace_hook.py"
+    local full_path=$(realpath "$SCRIPT_PYTHON")
     
     cat > "$hook_script" <<EOF
 #!/usr/bin/env python3
 import sys
 import os
-import signal
 import traceback
-import time
 import inspect
+import linecache
 
 # Original script path
-TARGET_SCRIPT = "$py_script"
+TARGET_SCRIPT = "$full_path"
+TARGET_SCRIPT_BASENAME = "$(basename "$SCRIPT_PYTHON")"
 
-# Global state
-PAUSED = False
-CALL_COUNT = 0
-MAX_CALLS = 500
-TRACED_FUNCTIONS = set()
+# Track executed functions and lines
+executed_functions = set()
+executed_lines = set()
 
-# Signal handler for pause/resume
-def handle_pause(signum, frame):
-    global PAUSED
-    PAUSED = not PAUSED
-    print(f"\n{'[PAUSED]' if PAUSED else '[RESUMED]'} at {frame.f_code.co_name}")
-    if PAUSED:
-        print("\n=== Current Stack ===")
-        traceback.print_stack(frame)
-        print("=====================")
+# Filter for library code
+IGNORE_DIRS = ['/lib/python', '/site-packages/', '/dist-packages/']
 
-# Signal handler for exit
-def handle_exit(signum, frame):
-    print("\n[EXITING] Trace terminated by signal")
-    sys.exit(0)
-
-# Register signal handlers
-signal.signal(signal.SIGUSR1, handle_pause)
-signal.signal(signal.SIGUSR2, handle_exit)
-
-# Print PID for external control
-print(f"Trace process PID: {os.getpid()}")
-print("Send SIGUSR1 (kill -SIGUSR1 PID) to pause/resume")
-print("Send SIGUSR2 (kill -SIGUSR2 PID) to exit")
-
-# Trace function hook
-def trace_calls(frame, event, arg):
-    global PAUSED, CALL_COUNT, TRACED_FUNCTIONS
+# Trace function for tracking function calls and line execution
+def trace_function(frame, event, arg):
+    # Get code information
+    code = frame.f_code
+    func_name = code.co_name
+    filename = code.co_filename
+    lineno = frame.f_lineno
     
-    # Wait if paused
-    while PAUSED:
-        time.sleep(0.1)
+    # Skip library code
+    if any(lib_dir in filename for lib_dir in IGNORE_DIRS):
+        return trace_function
     
+    # Only trace our script and directly related files
+    script_dir = os.path.dirname(os.path.abspath(TARGET_SCRIPT))
+    if not (filename == TARGET_SCRIPT or filename.startswith(script_dir)):
+        return trace_function
+    
+    # Record information based on event type
     if event == 'call':
-        # Get function info
-        func_name = frame.f_code.co_name
-        filename = frame.f_code.co_filename
-        
-        # Only trace user functions from our script
-        if TARGET_SCRIPT in filename and not func_name.startswith('_') and func_name not in TRACED_FUNCTIONS:
-            if CALL_COUNT < MAX_CALLS:
-                print(f"funcname: {func_name}")
-                TRACED_FUNCTIONS.add(func_name)
-                CALL_COUNT += 1
-                
-                if CALL_COUNT == MAX_CALLS:
-                    print("Trace limit reached (500 functions)")
+        # Skip dunder methods except main
+        if func_name.startswith('__') and func_name != '__main__':
+            return trace_function
+            
+        # Record function call if not already recorded
+        if func_name not in executed_functions:
+            print(f"funcname: {func_name}")
+            executed_functions.add(func_name)
+            
+    elif event == 'line':
+        # Record line execution
+        line_key = (filename, lineno)
+        if line_key not in executed_lines:
+            executed_lines.add(line_key)
+            
+            # Get the line content
+            line = linecache.getline(filename, lineno).strip()
+            if line:  # Only print non-empty lines
+                print(f"line: {os.path.basename(filename)}:{lineno}: {line}")
     
-    return trace_calls
+    # Continue tracing
+    return trace_function
 
-# Setup trace hook
-sys.settrace(trace_calls)
+# Set up the trace function
+sys.settrace(trace_function)
 
-# Execute the target script
+# Add script directory to path for imports
+script_dir = os.path.dirname(os.path.abspath(TARGET_SCRIPT))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
+# Run the script
 try:
-    with open(TARGET_SCRIPT) as f:
-        script_content = f.read()
+    print(f"Executing {TARGET_SCRIPT}")
     
-    # Set up globals for execution
-    script_globals = {
-        '__file__': TARGET_SCRIPT,
-        '__name__': '__main__'
-    }
+    # Read and compile the script
+    with open(TARGET_SCRIPT, 'rb') as f:
+        code = compile(f.read(), TARGET_SCRIPT, 'exec')
     
     # Execute the script
-    print(f"Starting execution of {TARGET_SCRIPT}")
-    exec(script_content, script_globals)
-    print("Script execution completed")
+    namespace = {
+        '__file__': TARGET_SCRIPT,
+        '__name__': '__main__',
+    }
     
-except KeyboardInterrupt:
-    print("\nScript execution interrupted")
+    exec(code, namespace)
+    
+    print(f"Execution completed. Found {len(executed_functions)} executed functions and {len(executed_lines)} executed lines.")
+    
 except Exception as e:
-    print(f"Error during script execution: {e}")
+    print(f"Error during execution: {e}")
     traceback.print_exc()
 EOF
 
@@ -413,6 +620,7 @@ EOF
     return 0
 }
 
+
 # Function to convert Python to C using LLM with multiple attempts
 convert_to_c() {
     local input_file="$SCRIPT_PYTHON"
@@ -440,6 +648,7 @@ convert_to_c() {
         echo "3. Use equivalent C data structures and types"
         echo "4. Include necessary headers and dependencies"
         echo "5. Only output proper C code that can be parsed by a C compiler"
+        cat "$SOURCE_INSTRUCTION_FILE"
         
         # Add list of functions we detected to focus on
         echo -e "\nImplement these functions identified during execution:"
@@ -467,7 +676,7 @@ convert_to_c() {
         cat "$output_file"
     } > "$TEMP_PROMPT"
 
-    echo "📤 Sending code to LLM for conversion..."
+    echo "📤 Sending code to LLM for conversion... : $TEMP_PROMPT"
 
     # Prepare Docker for testing if needed
     if [ "$USE_DOCKER" = true ]; then
@@ -475,11 +684,11 @@ convert_to_c() {
             # Use existing container
             docker exec "$CONTAINER_ID" mkdir -p /workspace
             debug_log "Using existing container: $CONTAINER_ID"
-        else
-            # Start a new container
-            CONTAINER_ID=$(docker run -d --rm -v "$TEMP_DIR":/workspace -w /workspace "$DOCKER_IMAGE" sleep 3600)
-            debug_log "Started new container: $CONTAINER_ID"
-            echo "🐳 Docker container started: $CONTAINER_ID (mounted $TEMP_DIR as /workspace)"
+        # else
+        #     # Start a new container
+        #     CONTAINER_ID=$(docker run -d --rm -v "$TEMP_DIR":/workspace -w /workspace "$DOCKER_IMAGE" sleep 3600)
+        #     debug_log "Started new container: $CONTAINER_ID"
+        #     echo "🐳 Docker container started: $CONTAINER_ID (mounted $TEMP_DIR as /workspace)"
         fi
     fi
 
@@ -487,8 +696,7 @@ convert_to_c() {
         echo "Attempt $attempt of $max_attempts to generate valid C code..."
 
         # Run aider to modify the C file (with a timeout)
-        timeout 180 aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
-            --message-file "$TEMP_PROMPT" --file "$output_file" || true
+        aider_wrapper "$TEMP_PROMPT" "$output_file" "$LLM_MODEL" || true
         
         # Show the output file contents for debugging
         debug_log "C code after aider (first 20 lines):"
@@ -496,12 +704,28 @@ convert_to_c() {
         
         # Check if the generated C code is valid
         if [ "$USE_DOCKER" = true ]; then
-            echo "Checking C syntax in Docker..."
-            if docker exec "$CONTAINER_ID" esbmc --parse-tree-only "/workspace/$C_FILE_NAME" 2>/dev/null; then
+
+            filename=$(basename "$output_file")
+            output_dir=$(dirname "$output_file")
+
+            # Montez le répertoire spécifique qui contient le fichier
+            if [ -n "$CONTAINER_ID" ]; then
+                # Pour un conteneur existant, copiez le fichier à l'intérieur
+                docker cp "$output_file" "$CONTAINER_ID:/workspace/$filename"
+                docker exec $CONTAINER_ID esbmc --parse-tree-only "/workspace/$filename"
+                result=$?
+            else
+                # Pour un nouveau conteneur, montez le répertoire contenant le fichier
+                docker run --rm -v $(pwd):/workspace -w /workspace "$DOCKER_IMAGE" esbmc --parse-tree-only "$filename"
+                result=$?
+            fi
+
+
+            if [ $result -eq 0 ]; then
                 echo "✅ Successfully generated valid C code on attempt $attempt"
                 success=true
             else
-                echo "❌ ESBMC parse tree check failed on attempt $attempt"
+                echo "❌ ESBMC parse tree check failed on attempt $attempt "
                 if [ $attempt -lt $max_attempts ]; then
                     echo "Retrying with additional instructions..."
                     # Add more specific instructions to fix syntax errors
@@ -514,7 +738,9 @@ convert_to_c() {
             fi
         else
             # Local ESBMC
-            if esbmc --parse-tree-only "$output_file" 2>/dev/null; then
+            esbmc --parse-tree-only "$output_file"
+            result=$?
+            if [ $result -eq 0 ]; then
                 echo "✅ Successfully generated valid C code on attempt $attempt"
                 success=true
             else
@@ -559,7 +785,7 @@ run_esbmc_for_function() {
         function_name="main"
     fi
     
-    local current_cmd="esbmc --function $function_name $C_FILE_NAME"
+    local current_cmd="esbmc --function $function_name \"$C_OUTPUT\""
 
     echo "----------------------------------------"
     echo "🛠️ Testing function: $function_name"
@@ -570,9 +796,9 @@ run_esbmc_for_function() {
     if [ "$USE_DOCKER" = true ]; then
         if [ -n "$CONTAINER_ID" ]; then
             # The file should already be in the container since we're mounting TEMP_DIR
-            docker exec -w /workspace "$CONTAINER_ID" bash -c "$current_cmd"
+            docker exec -w /workspace "$CONTAINER_ID" "$current_cmd"
         else
-            docker run --rm -v "$TEMP_DIR":/workspace -w /workspace "$DOCKER_IMAGE" bash -c "$current_cmd"
+            docker run --rm -v $(pwd):/workspace -w /workspace "$DOCKER_IMAGE" "$current_cmd"
         fi
     else
         cd "$TEMP_DIR" && eval "$current_cmd"
@@ -585,105 +811,59 @@ run_tracing_session() {
     
     echo "📌 Starting tracing for $SCRIPT_PYTHON..."
     
-    # Create trace hook script for better function tracking
+    # Create trace hook script
     create_trace_hook_script
     
-    # Run the trace script
+    # Run the trace script directly
     cd "$TEMP_DIR"
-    python3 "trace_hook.py" 2>&1 | tee "$TRACE_OUTPUT" &
-    TRACE_PID=$!
+    python3 "trace_hook.py" > "$TRACE_OUTPUT" 2>&1
     
-    echo "📊 Tracing started with PID: $TRACE_PID"
-    echo "- Press Enter to pause and analyze current trace"
+    # Extract functions from the trace output
+    extract_function_calls
     
-    # Loop to allow interactive pausing and analysis
-    while true; do
-        read -t 1 || true  # Non-blocking read with 1-second timeout
-        
-        if [ $? -eq 0 ]; then
-            # User pressed Enter, pause tracing and analyze
-            kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Send pause signal
-            echo "⏸️ Pausing trace collection..."
-            sleep 1  # Wait for pause to take effect
-            
-            # Extract functions from current trace
-            extract_function_calls
-            
-            # Extract program output (non-trace lines)
-            grep -v "funcname:" "$TRACE_OUTPUT" | grep -v "call function:" > "$PROGRAM_OUTPUT"
-            
-            # Check if we have any functions
-            if [ ! -s "$FUNCTIONS_FILE" ]; then
-                echo "⚠️ No functions detected in trace so far."
-                echo "Please let the program run longer or check if tracing is working correctly."
-                
-                # Show last 20 lines of trace output for debugging
-                echo "Last 20 lines of trace output:"
-                tail -n 20 "$TRACE_OUTPUT"
-            else
-                # Show detected functions
-                echo "Detected functions so far:"
-                cat "$FUNCTIONS_FILE"
-            fi
-            
-            # Show last 10 lines of program output
-            echo -e "\nLast 10 lines of program output:"
-            grep -v "funcname:" "$TRACE_OUTPUT" | grep -v "call function:" | tail -n 10
-            
-            # Ask user what to do
-            echo -e "\nOptions:"
-            echo "  1) Convert to C and verify with ESBMC"
-            echo "  2) Resume tracing"
-            echo "  3) Exit tracing and cleanup"
-            read -p "Enter option (1-3): " OPTION
-            
-            case $OPTION in
-                1)
-                    # Convert and verify
-                    convert_to_c
-                    while read -r function_name; do
-                        if [[ -n "$function_name" ]]; then
-                            run_esbmc_for_function "$function_name"
-                        fi
-                    done < "$FUNCTIONS_FILE"
-                    
-                    # Ask whether to resume or exit
-                    read -p "Resume tracing? (y/n): " RESUME
-                    if [[ "$RESUME" =~ ^[Yy]$ ]]; then
-                        kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
-                        echo "▶️ Resuming trace collection..."
-                    else
-                        kill -SIGUSR2 $TRACE_PID 2>/dev/null || true  # Exit
-                        wait $TRACE_PID 2>/dev/null || true
-                        echo "✅ Tracing completed."
-                        break
-                    fi
-                    ;;
-                2)
-                    # Resume tracing
-                    kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
-                    echo "▶️ Resuming trace collection..."
-                    ;;
-                3)
-                    # Exit tracing
-                    kill -SIGUSR2 $TRACE_PID 2>/dev/null || true  # Exit
-                    wait $TRACE_PID 2>/dev/null || true
-                    echo "✅ Tracing completed."
-                    break
-                    ;;
-                *)
-                    echo "Invalid option, resuming trace collection..."
-                    kill -SIGUSR1 $TRACE_PID 2>/dev/null || true  # Resume
-                    ;;
-            esac
-        fi
-        
-        # Check if trace process is still running
-        if ! kill -0 $TRACE_PID 2>/dev/null; then
-            echo "Trace process has ended."
-            break
-        fi
-    done
+    # Check if we have any functions
+    if [ ! -s "$FUNCTIONS_FILE" ]; then
+        echo "⚠️ No functions detected in trace."
+        echo "Last 20 lines of trace output:"
+        tail -n 20 "$TRACE_OUTPUT"
+    else
+        # Show detected functions
+        echo "Detected functions:"
+        cat "$FUNCTIONS_FILE"
+    fi
+    
+    # Extract program output (non-trace lines)
+    grep -v "^funcname:" "$TRACE_OUTPUT" | grep -v "^line:" > "$PROGRAM_OUTPUT"
+    
+    # Show options
+    echo -e "\nOptions:"
+    echo "  1) Convert to C and verify with ESBMC"
+    echo "  2) Restart tracing"
+    echo "  3) Exit tracing and cleanup"
+    read -p "Enter option (1-3): " OPTION
+    
+    case $OPTION in
+        1)
+            # Convert and verify
+            convert_to_c
+            while read -r function_name; do
+                if [[ -n "$function_name" ]]; then
+                    run_esbmc_for_function "$function_name"
+                fi
+            done < "$FUNCTIONS_FILE"
+            ;;
+        2)
+            # Restart tracing
+            run_tracing_session
+            ;;
+        3)
+            # Exit tracing
+            echo "✅ Tracing completed."
+            ;;
+        *)
+            echo "Invalid option, exiting."
+            ;;
+    esac
     
     cd - > /dev/null # Return to previous directory
 }
