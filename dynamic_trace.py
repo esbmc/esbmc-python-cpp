@@ -505,27 +505,39 @@ def convert_to_c() -> bool:
             filename = os.path.basename(output_file)
             output_dir = os.path.dirname(output_file)
 
-            if config.CONTAINER_ID:
-                # Copy the file into an existing container
-                subprocess.run(["docker", "cp", output_file, f"{config.CONTAINER_ID}:/workspace/{filename}"], check=True)
-                result = subprocess.run(
-                    ["docker", "exec", config.CONTAINER_ID, "esbmc", "--parse-tree-only", f"/workspace/{filename}"],
-                    capture_output=True
-                ).returncode
-            else:
-                # Use a new container for the check
-                result = subprocess.run(
-                    ["docker", "run", "--rm", "-v", f"{os.getcwd()}:/workspace", "-w", "/workspace", config.DOCKER_IMAGE,
-                     "esbmc", "--parse-tree-only", filename],
-                    capture_output=True
-                ).returncode
+            try:
+                if config.CONTAINER_ID:
+                    # Copy the file into an existing container
+                    subprocess.run(["docker", "cp", output_file, f"{config.CONTAINER_ID}:/workspace/{filename}"], check=True)
+                    cmd = ["docker", "exec", config.CONTAINER_ID, "esbmc", "--parse-tree-only", f"/workspace/{filename}"]
+                    result = subprocess.run(cmd,check=True, text=True, capture_output=True)
+                    print(result.stdout)
+                    print(result.stderr)
+                    result = result.returncode
+                else:
+                    # Use a new container for the check
+                    cmd = ["docker", "run", "--rm", "-v", f"{output_dir}:/workspace", "-w", "/workspace", config.DOCKER_IMAGE,"esbmc", "--parse-tree-only", filename]
+                    result = subprocess.run(cmd,check=True, text=True, capture_output=True)
+                    print(result.stdout)
+                    print(result.stderr)
+                    result = result.returncode
+            except subprocess.CalledProcessError as e:
+                print("Command failed with error code :", e.returncode)
+                print("Error output :", e.stderr)
+                result = e.returncode
+                
         else:
             # Local ESBMC
-            result = subprocess.run(
-                ["esbmc", "--parse-tree-only", output_file],
-                capture_output=True
-            ).returncode
-        
+            try:
+                cmd = ["esbmc", "--parse-tree-only", output_file]
+                result = subprocess.run(cmd,check=True, text=True, capture_output=True)
+                print(result.stdout)
+                print(result.stderr)
+                result = result.returncode
+            except subprocess.CalledProcessError as e:
+                print("Command failed with error code :", e.returncode)
+                print("Error output :", e.stderr)
+                result = e.returncode
         if result == 0:
             print(f"✅ Successfully generated valid C code on attempt {attempt}")
             success = True
@@ -566,20 +578,35 @@ def run_esbmc_for_function(function_name: str) -> int:
     print("----------------------------------------")
 
     if config.USE_DOCKER:
-        if config.CONTAINER_ID:
-            # The file should already be in the container
-            cmd = ["docker", "exec", "-w", "/workspace", config.CONTAINER_ID] + current_cmd.split()
-            return subprocess.run(cmd).returncode
-        else:
-            cmd = ["docker", "run", "--rm", "-v", f"{os.getcwd()}:/workspace", "-w", "/workspace", 
-                  config.DOCKER_IMAGE] + current_cmd.split()
-            return subprocess.run(cmd).returncode
+        try:
+            if config.CONTAINER_ID:
+                # The file should already be in the container
+                cmd = ["docker", "exec", "-w", "/workspace", config.CONTAINER_ID] + current_cmd.split()
+                testresult =  subprocess.run(cmd,check=True, text=True, capture_output=True)
+                print(testresult.stdout)
+                print(testresult.stderr)
+            else:
+                testfilename = os.path.basename(config.c_output)
+                testoutput_dir = os.path.dirname(config.c_output)
+                
+                cmd = ["docker", "run", "--rm", "-v", f"{testoutput_dir}:/workspace", "-w", "/workspace",config.DOCKER_IMAGE, "esbmc", "--function", function_name, testfilename]
+                testresult = subprocess.run(cmd,check=True, text=True, capture_output=True)
+                print(testresult.stdout)
+                print(testresult.stderr)
+        except subprocess.CalledProcessError as e:
+            print("Command failed with error code :", e.returncode)
+            print("Error output :", e.stderr)
     else:
         # Run locally
         original_dir = os.getcwd()
         os.chdir(config.temp_dir)
         try:
-            return subprocess.run(current_cmd, shell=True).returncode
+            testresult =  subprocess.run(current_cmd, check=True, text=True, capture_output=True)
+            print(testresult.stdout)
+            print(testresult.stderr)
+        except subprocess.CalledProcessError as e:
+            print("Command failed with error code :", e.returncode)
+            print("Error output :", e.stderr)
         finally:
             os.chdir(original_dir)
 
@@ -674,15 +701,23 @@ def main() -> None:
     
     if args.docker:
         config.USE_DOCKER = True
+    else:
+        config.USE_DOCKER = False
     
     if args.image:
         config.DOCKER_IMAGE = args.image
+    else : 
+        config.DOCKER_IMAGE = "esbmc"
     
     if args.container:
         config.CONTAINER_ID = args.container
+    else:
+        config.CONTAINER_ID = False
     
     if args.model:
         config.LLM_MODEL = args.model
+    else:
+        config.LLM_MODEL = "openrouter/anthropic/claude-3.5-sonnet"
     
     # Don't allow both image and container
     if args.image and args.container:
@@ -704,7 +739,7 @@ def main() -> None:
             elif reply.lower() == 'n':
                 print("✅ Tracing completed.")
                 # Clean up
-                shutil.rmtree(config.temp_dir)
+                # shutil.rmtree(config.temp_dir)
                 sys.exit(0)
             else:
                 print("⚠️ Invalid input. Please enter 'y' for Yes or 'n' for No.")
