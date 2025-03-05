@@ -300,7 +300,13 @@ def aider_wrapper(python_file: str, c_file: str, program_output: str, functions:
         print("--- Aider Conversion Complete ---\n")
         
         # Check if the C file is valid by trying to compile it
-        compile_cmd = ["gcc", "-c", "-o", "/dev/null", c_file]
+        if config.USE_DOCKER:
+            filename = os.path.basename(c_file)
+            output_dir = os.path.dirname(c_file)
+            compile_cmd = ["docker", "run", "--rm", "-v", f"{output_dir}:/workspace", "-w", "/workspace", config.DOCKER_IMAGE, "esbmc", "--parse-tree-only", filename]
+        else:
+            compile_cmd = ["esbmc ", "-—parse-tree-only", c_file]
+            
         compile_result = subprocess.run(compile_cmd, capture_output=True, text=True)
         
         if compile_result.returncode == 0:
@@ -308,6 +314,7 @@ def aider_wrapper(python_file: str, c_file: str, program_output: str, functions:
         else:
             print("⚠️ C code has compilation errors:")
             print(compile_result.stderr)
+            print(compile_result.stdout)
             print("Will attempt to fix these before verification...")
             
             # Try to fix compilation errors with a second aider run
@@ -323,6 +330,7 @@ def aider_wrapper(python_file: str, c_file: str, program_output: str, functions:
             else:
                 print("⚠️ C code still has compilation errors:")
                 print(compile_result.stderr)
+                print(compile_result.stdout)
         
         return True
     
@@ -339,7 +347,7 @@ def run_esbmc_verification(c_file: str, functions: List[str]) -> Dict[str, bool]
     print("\n🔍 Running ESBMC verification...")
     
     # Check if ESBMC is installed
-    if shutil.which("esbmc") is None:
+    if shutil.which("esbmc") is None and config.USE_DOCKER is False:
         print("❌ ESBMC not found in PATH. Please install ESBMC or specify its location.")
         return {}
     
@@ -352,7 +360,13 @@ def run_esbmc_verification(c_file: str, functions: List[str]) -> Dict[str, bool]
         functions.append("main")
     
     # First, try to compile the C file to check for syntax errors
-    compile_cmd = ["gcc", "-c", "-o", "/dev/null", c_file]
+    if config.USE_DOCKER:
+        filename = os.path.basename(c_file)
+        output_dir = os.path.dirname(c_file)
+        compile_cmd = ["docker", "run", "--rm", "-v", f"{output_dir}:/workspace", "-w", "/workspace", config.DOCKER_IMAGE,"esbmc", "--parse-tree-only", filename]
+    else:
+        compile_cmd = ["esbmc ", "-—parse-tree-only", c_file]
+        
     compile_result = subprocess.run(compile_cmd, capture_output=True, text=True)
     
     if compile_result.returncode != 0:
@@ -380,17 +394,40 @@ def run_esbmc_verification(c_file: str, functions: List[str]) -> Dict[str, bool]
         print(f"\n🧪 Verifying function: {func}")
         
         # Local ESBMC with better flags
-        cmd = [
-            "esbmc",
-            "--function", c_func,     # Use the mapped function name
-            "--no-bounds-check",      # Disable array bounds checks
-            "--no-pointer-check",     # Disable pointer checks
-            "--no-div-by-zero-check", # Disable division by zero checks
-            "--no-align-check",       # Disable memory alignment checks
-            "--no-unwinding-assertions", # Don't fail loops that need more unwinding
-            "--unwind", "10",         # Unwind loops up to 10 times
-            c_file
-        ]
+        if config.USE_DOCKER:
+            filename = os.path.basename(c_file)
+            output_dir = os.path.dirname(c_file)
+            cmd = [
+                "docker", 
+                "run", 
+                "--rm", 
+                "-v", 
+                f"{output_dir}:/workspace", 
+                "-w", 
+                "/workspace", 
+                config.DOCKER_IMAGE,
+                "esbmc",
+                "--function", c_func,     # Use the mapped function name
+                "--no-bounds-check",      # Disable array bounds checks
+                "--no-pointer-check",     # Disable pointer checks
+                "--no-div-by-zero-check", # Disable division by zero checks
+                "--no-align-check",       # Disable memory alignment checks
+                "--no-unwinding-assertions", # Don't fail loops that need more unwinding
+                "--unwind", "10",         # Unwind loops up to 10 times
+                filename
+            ]
+        else:
+            cmd = [
+                "esbmc",
+                "--function", c_func,     # Use the mapped function name
+                "--no-bounds-check",      # Disable array bounds checks
+                "--no-pointer-check",     # Disable pointer checks
+                "--no-div-by-zero-check", # Disable division by zero checks
+                "--no-align-check",       # Disable memory alignment checks
+                "--no-unwinding-assertions", # Don't fail loops that need more unwinding
+                "--unwind", "10",         # Unwind loops up to 10 times
+                c_file
+            ]
         
         print(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
