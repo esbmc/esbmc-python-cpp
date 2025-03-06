@@ -16,4 +16,5 @@ DO NOT:
 
 INSTEAD:
 - Simply implement missing functions if needed
+- Make sure that the syntax of the code is correct and that it is equivalent to python code
 - Stop with no changes if translation is complete
