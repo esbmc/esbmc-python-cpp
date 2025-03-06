@@ -28,7 +28,7 @@ Validate code translation, will validate the code translation, and adjust if not
 
 1. ````./verify.sh --llm examples/example_15_dictionary.py --validate-translation````
 
-dynamic_trace: uses python's trace to better convert and test code 
+dynamic_trace: uses python's trace to verify code during live execution!
 
 1. ``` python dynamic_trace.py  --model openrouter/deepseek/deepseek-chat aws_examples/chalice_awsclient.py ```
 or if you want to use docker
