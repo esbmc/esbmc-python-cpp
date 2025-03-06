@@ -694,7 +694,7 @@ def run_esbmc_verification(c_file: str, functions: List[str]) -> Dict[str, bool]
     # Verify each function that exists in the C file
     verified_functions = []
     print(f"debug : {functions}")
-    for func in functions:
+    for func in c_functions:
         # # Check if the function exists in the C file
         # c_func = func
         # if func not in c_functions and func != "main":
