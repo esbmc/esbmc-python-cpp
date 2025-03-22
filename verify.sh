@@ -11,7 +11,7 @@ DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
 ESBMC_EXTRA_OPTS=""
-LLM_MODEL="openrouter/anthropic/claude-3.5-sonnet"
+LLM_MODEL="openrouter/anthropic/claude-3.7-sonnet"
 TEST_FUNCTION_NAME=""
 TRANSLATION_MODE=""
 USE_ANALYSIS=false
@@ -23,6 +23,22 @@ DIRECT_TRANSLATION=false  # New flag for direct translation mode
 SOURCE_INSTRUCTION_FILE="prompts/python_prompt.txt"
 VALIDATION_INSTRUCTION_FILE="prompts/validation_prompt.txt"
 EXPLANATION_INSTRUCTION_FILE="prompts/explanation_prompt.txt"
+
+# Run aider from venv
+run_aider() {
+    if [ -d "$OLD_PWD/venv" ]; then
+        PYTHON_BIN="$OLD_PWD/venv/bin/python"
+        AIDER_BIN="$OLD_PWD/venv/bin/aider"
+        if [ -f "$AIDER_BIN" ]; then
+            "$AIDER_BIN" "$@"
+        else
+            "$PYTHON_BIN" -m aider "$@"
+        fi
+    else
+        echo "Warning: Virtual environment not found, using system aider"
+        aider "$@"
+    fi
+}
 
 show_usage() {
     echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] [--direct] <filename>"
@@ -66,7 +82,7 @@ analyze_code_for_errors() {
     } > "$temp_file"
 
     # Get raw output and create a list of potential function names
-    OUTPUT=$(aider --no-git --no-show-model-warnings --no-pretty \
+    OUTPUT=$(run_aider --no-git --no-show-model-warnings --no-pretty \
        --model "$LLM_MODEL" --yes --message-file "$temp_file" | tee /dev/tty)
 
     sync
@@ -135,7 +151,7 @@ validate_translation() {
             cat "$converted_file"
         } > "$COMBINED_FILE"
 
-        aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+        run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
             --message-file "$VALIDATION_INSTRUCTION_FILE" \
             --read "$COMBINED_FILE" "$converted_file"
 
@@ -214,15 +230,15 @@ attempt_llm_conversion() {
         echo "Attempt $attempt of $max_attempts to generate valid C code from ${file_extension}..."
 
         if [ $attempt -eq 1 ]; then
-            aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+            run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
                 --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
         else
             if [ "$USE_DOCKER" = true ]; then
-                aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
+                run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
                     --test-cmd "docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc --parse-tree-only $output_file" \
                     --yes --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
             else
-                aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
+                run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
                     --test-cmd "esbmc --parse-tree-only $output_file" \
                     --yes --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
             fi
@@ -269,7 +285,7 @@ explain_violation() {
     echo "Requesting explanation from LLM..."
     echo "----------------------------------------"
 
-    aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+    run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
         --message-file "$EXPLANATION_INSTRUCTION_FILE" \
         --read "$temp_file"
 
