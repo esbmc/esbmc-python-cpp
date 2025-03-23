@@ -48,16 +48,28 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
         echo "OpenBLAS is already installed"
     fi
 
+    # Install LLVM for OpenMP support on macOS
+    if ! check_brew_package "llvm"; then
+        echo "Installing LLVM for OpenMP support..."
+        brew install llvm
+    else
+        echo "LLVM is already installed"
+    fi
+
     # Force link OpenBLAS
     echo "Linking OpenBLAS..."
     brew link --force openblas
 
-    # Set environment variables for OpenBLAS
-    echo "Setting up OpenBLAS environment variables..."
+    # Set environment variables for OpenBLAS and OpenMP
+    echo "Setting up environment variables..."
     export OPENBLAS=$(brew --prefix openblas)
-    export CFLAGS="-I$(brew --prefix openblas)/include ${CFLAGS}"
-    export LDFLAGS="-L$(brew --prefix openblas)/lib ${LDFLAGS}"
-    export PKG_CONFIG_PATH="$(brew --prefix openblas)/lib/pkgconfig:${PKG_CONFIG_PATH}"
+    export LLVM_PATH=$(brew --prefix llvm)
+    export CC="$LLVM_PATH/bin/clang"
+    export CXX="$LLVM_PATH/bin/clang++"
+    export CFLAGS="-I$OPENBLAS/include -I$LLVM_PATH/include ${CFLAGS}"
+    export CXXFLAGS="-I$OPENBLAS/include -I$LLVM_PATH/include ${CXXFLAGS}"
+    export LDFLAGS="-L$OPENBLAS/lib -L$LLVM_PATH/lib ${LDFLAGS}"
+    export PKG_CONFIG_PATH="$OPENBLAS/lib/pkgconfig:$LLVM_PATH/lib/pkgconfig:${PKG_CONFIG_PATH}"
 
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     # Linux
@@ -126,17 +138,23 @@ fi
 echo "Activating virtual environment..."
 source venv/bin/activate
 
-# Install scipy first on Apple Silicon with binary wheels
+# For M1/M2/M3 Macs, install scipy binary wheel and disable OpenMP
 if [[ "$OSTYPE" == "darwin"* ]] && [[ $(uname -m) == 'arm64' ]]; then
-    echo "Installing scipy binary wheel for Apple Silicon..."
-    pip install --only-binary=scipy scipy
-fi
+    echo "Configuring for Apple Silicon..."
+    # Disable OpenMP on macOS to avoid compilation issues
+    export SCIPY_USE_PYTHRAN=0
+    export SCIPY_USE_PROPACK=0
+    export NPY_USE_BLAS_ILP64=0
+    export OPENBLAS_NUM_THREADS=1
+    export SCIPY_ALLOW_OPENMP_BUILD=0
 
-echo "Installing Python requirements..."
-if [[ "$OSTYPE" == "darwin"* ]] && [[ $(uname -m) == 'arm64' ]]; then
-    # For Apple Silicon (M1/M2/M3) Macs, prefer binary wheels
+    # Force binary wheel installation for scipy
+    pip install --only-binary=scipy scipy
+
+    # Install other requirements with binary preference
     pip install --prefer-binary -r requirements.txt
 else
+    # For other platforms
     pip install -r requirements.txt
 fi
 
