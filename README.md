@@ -57,8 +57,8 @@ Tested coding models are ````qwen2.5-coder:7b and qwen2.5-coder:32b````
 
 We will update with more tested models soon.
 
-1. ````./verify.sh jpl-examples/list_comprehension_complex.py --llm --model ollama/qwen2.5-coder:32b --direct````
+1. ````./verify.sh jpl-examples/list_comprehension_complex.py --llm --model ollama_chat/qwen2.5-coder:32b --direct````
 or 
-````./verify.sh jpl-examples/list_comprehension_complex.py --llm --model ollama/qwen2.5-coder:7b --direct````
+````./verify.sh jpl-examples/list_comprehension_complex.py --llm --model ollama_chat/qwen2.5-coder:7b --direct````
 
 Note that running with a larger model will take longer to run, but will be more accurate.
