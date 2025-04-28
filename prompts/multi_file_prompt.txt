@@ -1,0 +1,31 @@
+When converting multiple Python files to a single C program:
+
+1. Start with proper header includes:
+   - Standard C libraries (stdio.h, stdlib.h, string.h, etc.)
+   - Any custom headers needed
+
+2. Forward declare all functions and types to avoid dependency issues
+
+3. For each Python module:
+   - Create a corresponding section in the C file with clear comments
+   - Maintain the original function signatures where possible
+   - Convert classes to appropriate C structures with associated functions
+
+4. Handle imports by ensuring functions from one module can access functions from another
+
+5. Convert Python-specific features:
+   - Replace dynamic typing with appropriate C types
+   - Implement Python's built-in functions (len, print, etc.)
+   - Create appropriate data structures for lists, dictionaries, etc.
+   - Handle string operations carefully
+
+6. Preserve the execution flow:
+   - Ensure initialization happens in the correct order
+   - Maintain the original control flow
+   - Preserve the entry point logic
+
+7. Add appropriate error handling where needed
+
+8. Include a main() function that calls the appropriate entry point from the main file
+
+Remember to maintain the relationships between files and ensure all dependencies are properly resolved.
