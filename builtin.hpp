@@ -129,6 +129,52 @@ namespace shedskin {
         //(std::cout << ... << args) << std::endl;
     }
 
+    // Max function implementations
+    template<typename T>
+    inline T ___max(T a, T b) {
+        return (a > b) ? a : b;
+    }
+
+    template<typename T>
+    inline T ___max(T a, T b, T c) {
+        return ___max(___max(a, b), c);
+    }
+
+    template<typename T>
+    inline T ___max(T a, T b, T c, T d) {
+        return ___max(___max(a, b), ___max(c, d));
+    }
+
+    template<typename T, typename... Args>
+    inline T ___max(T first, Args... args) {
+        T result = first;
+        ((result = (args > result) ? args : result), ...);
+        return result;
+    }
+
+    // Min function implementations
+    template<typename T>
+    inline T ___min(T a, T b) {
+        return (a < b) ? a : b;
+    }
+
+    template<typename T>
+    inline T ___min(T a, T b, T c) {
+        return ___min(___min(a, b), c);
+    }
+
+    template<typename T>
+    inline T ___min(T a, T b, T c, T d) {
+        return ___min(___min(a, b), ___min(c, d));
+    }
+
+    template<typename T, typename... Args>
+    inline T ___min(T first, Args... args) {
+        T result = first;
+        ((result = (args < result) ? args : result), ...);
+        return result;
+    }
+
     inline __ss_int power(__ss_int base, __ss_int exp) {
         __ss_int result = 1;
         while (exp > 0) {
