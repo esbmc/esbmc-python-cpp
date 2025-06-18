@@ -58,22 +58,19 @@ LLM mode allows faster and more flexible code verification:
 ### Basic Command
 
 ```bash
-./verify.sh --llm <filename>
+./verify.sh --llm --model <model> <filename>
 ```
 
-### Recommended Options
+Example:
 
-| Description | Command |
-|------------|---------|
-| Use DeepSeek via OpenRouter (cheap & efficient) | `./verify.sh --llm --model openrouter/deepseek/deepseek-chat examples/example_deadlock_bug.py` |
-| Use Gemini for fast translation | `./verify.sh --llm --translation fast examples/example_deadlock_bug.py` |
-| Use Claude (high accuracy, more expensive) | `./verify.sh --llm examples/example_deadlock_bug.py` |
-| Use a custom or local model | `./verify.sh --llm --model <custom_model> examples/example_deadlock_bug.py` |
+```bash
+./verify.sh --llm --model ollama_chat/qwen2.5-coder:7b examples/example_deadlock_bug.py
+```
 
 ### Validate the LLM Translation
 
 ```bash
-./verify.sh --llm examples/example_15_dictionary.py --validate-translation
+./verify.sh --llm --model ollama_chat/qwen2.5-coder:7b examples/example_15_dictionary.py --validate-translation
 ```
 
 ---
@@ -83,13 +80,13 @@ LLM mode allows faster and more flexible code verification:
 Trace and verify live execution paths using Python's built-in tracing:
 
 ```bash
-python dynamic_trace.py --model openrouter/deepseek/deepseek-chat aws_examples/chalice_awsclient.py
+python dynamic_trace.py --model ollama_chat/qwen2.5-coder:7b aws_examples/chalice_awsclient.py
 ```
 
 Or use Docker:
 
 ```bash
-python dynamic_trace.py --docker --image esbmc-image --model openrouter/deepseek/deepseek-chat aws_examples/chalice_awsclient.py
+python dynamic_trace.py --docker --image esbmc-image --model ollama_chat/qwen2.5-coder:7b aws_examples/chalice_awsclient.py
 ```
 
 ---
