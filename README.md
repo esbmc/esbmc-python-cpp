@@ -1,6 +1,6 @@
-# ESBMC-Python-CPP: Bridging Python to Verified C++/C using ESBMC
+# ESBMC-Python-CPP: Bridging Python to Verified C/++ using ESBMC
 
-**ESBMC-Python-CPP** is a work-in-progress toolkit that bridges Python code and C++/C verification through the [ESBMC](https://esbmc.org/) model checker. It supports three primary approaches for converting and analyzing Python code:
+**ESBMC-Python-CPP** is a work-in-progress toolkit that bridges Python code and C/++ verification through the [ESBMC](https://esbmc.org/) model checker. It supports three primary approaches for converting and analyzing Python code:
 
 1. **Static Conversion via Shedskin**  
    Converts Python to C++ code using [Shedskin](https://github.com/shedskin/shedskin).
