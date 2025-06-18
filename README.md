@@ -16,7 +16,7 @@
 ## 🔧 Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/esbmc-python-cpp.git
+git clone https://github.com/esbmc/esbmc-python-cpp.git
 cd esbmc-python-cpp
 ./install.sh
 ```
