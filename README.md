@@ -80,13 +80,13 @@ Example:
 Trace and verify live execution paths using Python's built-in tracing:
 
 ```bash
-python dynamic_trace.py --model ollama_chat/qwen2.5-coder:7b aws_examples/chalice_awsclient.py
+python3 dynamic_trace.py --model ollama_chat/qwen2.5-coder:7b aws_examples/chalice_awsclient.py
 ```
 
 Or use Docker:
 
 ```bash
-python dynamic_trace.py --docker --image esbmc-image --model ollama_chat/qwen2.5-coder:7b aws_examples/chalice_awsclient.py
+python3 dynamic_trace.py --docker --image esbmc-image --model ollama_chat/qwen2.5-coder:7b aws_examples/chalice_awsclient.py
 ```
 
 ---
