@@ -814,8 +814,35 @@ attempt_multi_file_conversion() {
             echo "  Input file: $combined_file"
             echo "  Output file: $(pwd)/$output_file"
             
-            run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
-                --message-file "$TEMP_PROMPT" --read "$combined_file" "$(pwd)/$output_file" 2>&1 | tee "$AIDER_OUTPUT"
+            # Check if we're using GLM-4.5-Air-4bit model which has known shutdown issues
+            if [[ "$LLM_MODEL" == *"GLM-4.5-Air-4bit"* ]]; then
+                echo "Using GLM-4.5-Air-4bit model with special error handling..."
+                # Use a temporary file to capture stderr separately
+                STDERR_FILE=$(mktemp)
+                
+                # Run aider with stderr redirected to a separate file
+                run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+                    --message-file "$TEMP_PROMPT" --read "$combined_file" "$(pwd)/$output_file" 2> "$STDERR_FILE" | tee "$AIDER_OUTPUT"
+                
+                # Check if the specific error occurred
+                if grep -q "cannot schedule new futures after shutdown" "$STDERR_FILE"; then
+                    echo "WARNING: Detected GLM-4.5-Air-4bit shutdown error"
+                    echo "Trying again with a different model..."
+                    
+                    # Try again with a more stable model
+                    BACKUP_MODEL="openrouter/anthropic/claude-3-haiku"
+                    echo "Switching to backup model: $BACKUP_MODEL"
+                    
+                    run_aider --no-git --no-show-model-warnings --model "$BACKUP_MODEL" --yes \
+                        --message-file "$TEMP_PROMPT" --read "$combined_file" "$(pwd)/$output_file" 2>&1 | tee -a "$AIDER_OUTPUT"
+                fi
+                
+                rm -f "$STDERR_FILE"
+            else
+                # Normal execution for other models
+                run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
+                    --message-file "$TEMP_PROMPT" --read "$combined_file" "$(pwd)/$output_file" 2>&1 | tee "$AIDER_OUTPUT"
+            fi
             
             # Debug: Show aider output
             echo "=== Aider output ==="
@@ -828,6 +855,11 @@ attempt_multi_file_conversion() {
                 echo "Aider command was:"
                 echo "run_aider --no-git --no-show-model-warnings --model $LLM_MODEL --yes" \
                     "--message-file $TEMP_PROMPT --read $combined_file $(pwd)/$output_file"
+                
+                echo "ERROR: LLM failed to generate content for $output_file"
+                echo "This may be due to a model error or resource limitation."
+                echo "Try using a different model with --model option."
+                exit 1
             fi
             
             rm "$AIDER_OUTPUT"
@@ -846,8 +878,10 @@ attempt_multi_file_conversion() {
         # Check if the file exists and is not empty after running aider
         if [ ! -s "$output_file" ]; then
             echo "WARNING: Output file is empty after aider run."
-            # Don't add placeholder content, just report the error
             echo "ERROR: LLM failed to generate content for $output_file"
+            echo "This may be due to a model error or resource limitation."
+            echo "Try using a different model with --model option."
+            exit 1
         fi
         
         if [ "$USE_DOCKER" = true ]; then
@@ -1039,6 +1073,19 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                     # Ensure the file exists and is not empty
                     if [ ! -s "$TARGET_FILE" ]; then
                         echo "ERROR: Output file $TARGET_FILE is empty or does not exist"
+                        echo "This may be due to a model error or resource limitation."
+                        
+                        # Check if we're using GLM-4.5-Air-4bit model which has known shutdown issues
+                        if [[ "$LLM_MODEL" == *"GLM-4.5-Air-4bit"* ]]; then
+                            echo "The GLM-4.5-Air-4bit model has known issues with 'cannot schedule new futures after shutdown'"
+                            echo "Try using a different model with --model option, such as:"
+                            echo "  --model openrouter/anthropic/claude-3-haiku"
+                            echo "  --model openrouter/anthropic/claude-3-sonnet"
+                            echo "  --model openrouter/google/gemini-1.5-pro"
+                        else
+                            echo "Try using a different model with --model option."
+                        fi
+                        
                         # Try to debug the issue
                         echo "Debugging information:"
                         echo "Current directory: $(pwd)"

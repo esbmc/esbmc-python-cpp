@@ -28,4 +28,6 @@ When converting multiple Python files to a single C program:
 
 8. Include a main() function that calls the appropriate entry point from the main file
 
+9. Complete all methods as detailed as possible, do not leave any methods or lines incomplete.
+
 Remember to maintain the relationships between files and ensure all dependencies are properly resolved.
