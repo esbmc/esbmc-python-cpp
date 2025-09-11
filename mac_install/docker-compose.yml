@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  esbmc:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - ESBMC_COMMIT=HEAD  # Change this to pin to specific commit
+      cache_from:
+        - esbmc_esbmc:latest
+    container_name: esbmc-container
+    tty: true
+    stdin_open: true
+    volumes:
+      - .:/workspace
+    working_dir: /workspace

@@ -1,5 +1,6 @@
 When converting multiple Python files to a single C program:
 
+0. The combined python file that can consist of multiple files is all concantenated into one file. Treat the input as multiple python files.
 1. Start with proper header includes:
    - Standard C libraries (stdio.h, stdlib.h, string.h, etc.)
    - Any custom headers needed
