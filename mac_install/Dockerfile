@@ -59,7 +59,7 @@ RUN cd esbmc && \
     mkdir build && \
     cd build && \
     echo "Configuring ESBMC with Clang..." && \
-    cmake .. -DENABLE_Z3=1 -DENABLE_BOOLECTOR=1 -DBoolector_DIR=/opt/boolector-release/ -DCMAKE_C_COMPILER=clang-14 -DCMAKE_CXX_COMPILER=clang++-14
+    cmake .. -DENABLE_Z3=1 -DENABLE_PYTHON_FRONTEND=On -DENABLE_BOOLECTOR=1 -DBoolector_DIR=/opt/boolector-release/ -DCMAKE_C_COMPILER=clang-14 -DCMAKE_CXX_COMPILER=clang++-14
 
 # Build ESBMC (separate step)
 RUN cd esbmc/build && \
