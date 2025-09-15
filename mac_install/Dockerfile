@@ -28,6 +28,11 @@ RUN apt-get update && apt-get install -y \
     libgmp-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install pip and Python packages separately
+RUN rm -f /usr/lib/python*/EXTERNALLY-MANAGED && \
+    curl -sSL https://bootstrap.pypa.io/get-pip.py | python3 - && \
+    python3 -m pip install mypy ast2json
+
 # Set working directory for builds
 WORKDIR /opt
 
@@ -38,7 +43,7 @@ RUN git clone --depth=1 --branch=3.2.3 https://github.com/boolector/boolector &&
     ./contrib/setup-btor2tools.sh && \
     ./configure.sh --prefix $PWD/../boolector-release && \
     cd build && \
-    make -j$(nproc) && \
+    (make -j$(($(nproc)/2)) || (echo "First attempt failed, trying again..." && make -j$(($(nproc)/2))) || (echo "Second attempt failed, trying single-threaded..." && make -j1)) && \
     make install && \
     cd .. && \
     cd ..
@@ -64,7 +69,12 @@ RUN cd esbmc && \
 # Build ESBMC (separate step)
 RUN cd esbmc/build && \
     echo "Starting ESBMC build with $(nproc) CPUs..." && \
-    (make -j$(($(nproc)/2)) || echo "First attempt failed, trying again..." && make -j$(($(nproc)/2)) || echo "Second attempt failed, trying single-threaded..." && make -j1)
+    (make -j$(($(nproc)/2)) || \
+     (echo "First attempt failed, trying again..." && make -j$(($(nproc)/2))) || \
+     (echo "Second attempt failed, trying again..." && make -j$(($(nproc)/2))) || \
+     (echo "Third attempt failed, trying again..." && make -j$(($(nproc)/2))) || \
+     (echo "Fourth attempt failed, trying again..." && make -j$(($(nproc)/2))) || \
+     (echo "All parallel attempts failed, trying single-threaded..." && make -j1))
 
 # Install ESBMC
 RUN cd /opt/esbmc/build && \
