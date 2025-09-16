@@ -167,6 +167,8 @@ validate_translation() {
         echo "Checking if code compiles..."
         if [ "$USE_DOCKER" = true ]; then
             CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
+                 # Run esbmc in the container with current directory mounted
+            CMRUN='docker exec -w "/workspace" "${CONTAINER_NAME}" esbmc "$@"'
         else
             CMDRUN="esbmc"
         fi
@@ -437,7 +439,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
         ORIGINAL_INPUT_FILES=("${INPUT_FILES[@]}")
         # Clear the INPUT_FILES array
         INPUT_FILES=()
-        
+
         # Find files matching the pattern
         for file in $GLOB_PATTERN; do
             if [ -f "$file" ]; then
@@ -445,7 +447,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                 echo "Added file from pattern: $file"
             fi
         done
-        
+
         # Add any explicitly specified files
         for file in "${ORIGINAL_INPUT_FILES[@]}"; do
             # Check if the file is already in the INPUT_FILES array
@@ -456,16 +458,16 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                     break
                 fi
             done
-            
+
             if [ "$FILE_ALREADY_ADDED" = false ]; then
                 INPUT_FILES+=("$file")
                 echo "Added explicitly specified file: $file"
             fi
         done
-        
+
         # If no files were found, show an error
         [ ${#INPUT_FILES[@]} -eq 0 ] && { echo "Error: No files match the pattern $GLOB_PATTERN"; show_usage; }
-        
+
         # Set the main file to the first file if not specified
         if [ -z "$MAIN_FILE" ]; then
             MAIN_FILE=$(basename "${INPUT_FILES[0]}")
@@ -474,7 +476,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
     else
         [ ${#INPUT_FILES[@]} -eq 0 ] && { echo "Error: No input files provided"; show_usage; }
     fi
-    
+
     # Check if main file is in the input files
     MAIN_FILE_FOUND=false
     for file in "${INPUT_FILES[@]}"; do
@@ -483,11 +485,11 @@ if [ "$MULTI_FILE_MODE" = true ]; then
             break
         fi
     done
-    
+
     if [ "$MAIN_FILE_FOUND" = false ]; then
         echo "Warning: Main file $MAIN_FILE not found by exact name in input files"
         echo "Looking for main file with path..."
-        
+
         # Try to find the file with the full path
         for file in "${INPUT_FILES[@]}"; do
             if [[ "$file" == *"/$MAIN_FILE" || "$file" == *"$MAIN_FILE" ]]; then
@@ -497,19 +499,19 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                 break
             fi
         done
-        
+
         # If still not found, use the first file as main
         if [ "$MAIN_FILE_FOUND" = false ]; then
             MAIN_FILE=$(basename "${INPUT_FILES[0]}")
             echo "Using first input file as main: $MAIN_FILE"
         fi
     fi
-    
+
     # Check if all files exist
     for file in "${INPUT_FILES[@]}"; do
         [ ! -f "$file" ] && { echo "Error: Source file $file does not exist"; exit 1; }
     done
-    
+
     FULLPATH="${INPUT_FILES[0]}"  # Use first file for directory info
     FILENAME=$(basename "$MAIN_FILE")
     BASENAME="${FILENAME%.*}"
@@ -518,7 +520,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
 else
     [ -z "$FULLPATH" ] && show_usage
     [ ! -f "$FULLPATH" ] && { echo "Error: Source file $FULLPATH does not exist"; exit 1; }
-    
+
     FILENAME=$(basename "$FULLPATH")
     BASENAME="${FILENAME%.*}"
     EXTENSION="${FILENAME##*.}"
@@ -605,14 +607,14 @@ verify_complete_implementations() {
     local is_main_file=${2:-true}  # Default to true if not specified
     local temp_file=$(mktemp)
     local incomplete_found=false
-    
+
     echo "Checking for incomplete implementations in $c_file..."
-    
+
     # Check for common patterns of incomplete implementations
     if grep -E "\/\/ Implementation of|\/\/ TODO|\/\/ Not implemented|{[ \t]*\/\*[ \t]*\*\/[ \t]*}|{[ \t]*\/\/.*[ \t]*}|{[ \t]*}|\/\*[ \t]*Empty implementation[ \t]*\*\/|This is a basic|You will need to fill in|You need to fill in" "$c_file" > /dev/null; then
         incomplete_found=true
         echo "Found incomplete implementations in $c_file"
-        
+
         # Create a prompt to fix incomplete implementations
         {
             echo "The C code has incomplete function implementations that need to be completed."
@@ -635,15 +637,15 @@ verify_complete_implementations() {
             echo "=== CURRENT CODE WITH INCOMPLETE IMPLEMENTATIONS ==="
             cat "$c_file"
         } > "$temp_file"
-        
+
         echo "Requesting LLM to complete implementations..."
         run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
             --message-file "$temp_file" "$c_file"
-        
+
         # Verify if there are still incomplete implementations
         if grep -E "\/\/ Implementation of|\/\/ TODO|\/\/ Not implemented|{[ \t]*\/\*[ \t]*\*\/[ \t]*}|{[ \t]*\/\/.*[ \t]*}|{[ \t]*}|\/\*[ \t]*Empty implementation[ \t]*\*\/|This is a basic|You will need to fill in|You need to fill in" "$c_file" > /dev/null; then
             echo "WARNING: Some implementations may still be incomplete. Running a second pass..."
-            
+
             # Create a more forceful prompt for the second pass
             {
                 echo "CRITICAL: The C code STILL has incomplete function implementations that MUST be completed."
@@ -666,19 +668,19 @@ verify_complete_implementations() {
                 echo "=== CURRENT CODE WITH INCOMPLETE IMPLEMENTATIONS ==="
                 cat "$c_file"
             } > "$temp_file"
-            
+
             run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
                 --message-file "$temp_file" "$c_file"
         fi
     else
         echo "No incomplete implementations found in $c_file"
     fi
-    
+
     # Check if main function exists (only for main files)
     if [ "$is_main_file" = true ] && ! grep -q "int main" "$c_file"; then
         echo "WARNING: No main function found in $c_file. Skipping main function addition to preserve original output."
     fi
-    
+
     rm -f "$temp_file"
     return 0
 }
@@ -689,13 +691,13 @@ combine_files() {
     local main_file=$2
     shift 2
     local files=("$@")
-    
+
     # Check if files exist before trying to combine them
     if [ ! -f "$main_file" ]; then
         echo "Error: Main file $main_file not found"
         return 1
     fi
-    
+
     # Create the output file
     echo "=== MAIN FILE: $(basename "$main_file") ===" > "$output_file"
     echo '```python' >> "$output_file"
@@ -706,7 +708,7 @@ combine_files() {
     fi
     echo '```' >> "$output_file"
     echo "" >> "$output_file"
-    
+
     for file in "${files[@]}"; do
         if [ "$(basename "$file")" != "$(basename "$main_file")" ] && [ -f "$file" ]; then
             echo "=== DEPENDENCY FILE: $(basename "$file") ===" >> "$output_file"
@@ -733,21 +735,21 @@ attempt_multi_file_conversion() {
     local max_attempts=5
     local attempt=1
     local success=false
-    
+
     # Always use combined.c as the output file name for consistency
     local original_output_file="$output_file"
     output_file="combined.c"
-    
+
     # Create a copy of the combined file for reference
     local combined_file_copy=$(mktemp)
     cp "$combined_file" "$combined_file_copy"
-    
+
     local TEMP_PROMPT="$TEMP_DIR/aider_prompt.txt"
-    
+
     # Create the prompt file with proper permissions
     touch "$TEMP_PROMPT"
     chmod 644 "$TEMP_PROMPT"
-    
+
     {
         echo "Convert the following multiple Python files into a single coherent C program."
         echo ""
@@ -781,16 +783,16 @@ attempt_multi_file_conversion() {
         fi
         cat "$MULTI_FILE_INSTRUCTION_FILE" 2>/dev/null
     } > "$TEMP_PROMPT"
-    
+
     while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
         echo "Attempt $attempt of $max_attempts to generate valid C code from multiple Python files..."
-        
+
         # Don't create an empty file before running aider
-        
+
         if [ $attempt -eq 1 ]; then
             echo "Running first attempt with combined file: $combined_file"
             echo "Output will be written to: $output_file"
-            
+
             # Capture aider output for debugging
             AIDER_OUTPUT=$(mktemp)
             # Verify the prompt file exists and has content
@@ -801,67 +803,67 @@ attempt_multi_file_conversion() {
                 cat "$TEMP_PROMPT"
                 exit 1
             fi
-            
+
             # Verify the combined file exists and has content
             if [ ! -s "$combined_file" ]; then
                 echo "ERROR: Combined file is empty or does not exist"
                 echo "Combined file path: $combined_file"
                 exit 1
             fi
-            
+
             echo "Running aider with:"
             echo "  Prompt file: $TEMP_PROMPT"
             echo "  Input file: $combined_file"
             echo "  Output file: $(pwd)/$output_file"
-            
+
             # Check if we're using GLM-4.5-Air-4bit model which has known shutdown issues
             if [[ "$LLM_MODEL" == *"GLM-4.5-Air-4bit"* ]]; then
                 echo "Using GLM-4.5-Air-4bit model with special error handling..."
                 # Use a temporary file to capture stderr separately
                 STDERR_FILE=$(mktemp)
-                
+
                 # Run aider with stderr redirected to a separate file
                 run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
                     --message-file "$TEMP_PROMPT" --read "$combined_file" "$(pwd)/$output_file" 2> "$STDERR_FILE" | tee "$AIDER_OUTPUT"
-                
+
                 # Check if the specific error occurred
                 if grep -q "cannot schedule new futures after shutdown" "$STDERR_FILE"; then
                     echo "WARNING: Detected GLM-4.5-Air-4bit shutdown error"
                     echo "Trying again with a different model..."
-                    
+
                     # Try again with a more stable model
                     BACKUP_MODEL="openrouter/anthropic/claude-3-haiku"
                     echo "Switching to backup model: $BACKUP_MODEL"
-                    
+
                     run_aider --no-git --no-show-model-warnings --model "$BACKUP_MODEL" --yes \
                         --message-file "$TEMP_PROMPT" --read "$combined_file" "$(pwd)/$output_file" 2>&1 | tee -a "$AIDER_OUTPUT"
                 fi
-                
+
                 rm -f "$STDERR_FILE"
             else
                 # Normal execution for other models
                 run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
                     --message-file "$TEMP_PROMPT" --read "$combined_file" "$(pwd)/$output_file" 2>&1 | tee "$AIDER_OUTPUT"
             fi
-            
+
             # Debug: Show aider output
             echo "=== Aider output ==="
             cat "$AIDER_OUTPUT"
             echo "=== End of aider output ==="
-            
+
             # Verify output file
             if [ ! -s "$output_file" ]; then
                 echo "WARNING: Output file is empty after aider run"
                 echo "Aider command was:"
                 echo "run_aider --no-git --no-show-model-warnings --model $LLM_MODEL --yes" \
                     "--message-file $TEMP_PROMPT --read $combined_file $(pwd)/$output_file"
-                
+
                 echo "ERROR: LLM failed to generate content for $output_file"
                 echo "This may be due to a model error or resource limitation."
                 echo "Try using a different model with --model option."
                 exit 1
             fi
-            
+
             rm "$AIDER_OUTPUT"
         else
             if [ "$USE_DOCKER" = true ]; then
@@ -874,7 +876,7 @@ attempt_multi_file_conversion() {
                     --yes --message-file "$TEMP_PROMPT" --read "$combined_file" "$(pwd)/$output_file"
             fi
         fi
-        
+
         # Check if the file exists and is not empty after running aider
         if [ ! -s "$output_file" ]; then
             echo "WARNING: Output file is empty after aider run."
@@ -883,34 +885,48 @@ attempt_multi_file_conversion() {
             echo "Try using a different model with --model option."
             exit 1
         fi
-        
+
         if [ "$USE_DOCKER" = true ]; then
             CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
         else
             CMDRUN="esbmc"
         fi
-        
-        if $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
+
+        if [ "$USE_DOCKER" = true ]; then
+            file_path="/workspace/$output_file"
+        else
+            file_path="$output_file"
+        fi
+
+        if $CMDRUN --parse-tree-only "$file_path" 2>/dev/null; then
             echo "Successfully generated valid C code on attempt $attempt"
             success=true
         else
             echo "ESBMC parse tree check failed on attempt $attempt"
             [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
         fi
-        
+
+        #if $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
+        #    echo "Successfully generated valid C code on attempt $attempt"
+        #    success=true
+        #else
+        #    echo "ESBMC parse tree check failed on attempt $attempt"
+        #    [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
+        #fi
+
         ((attempt++))
     done
-    
+
     # Check if the file contains a main function
     if [ "$success" = true ] && ! grep -q "int main" "$output_file"; then
         echo "WARNING: No main function found in $output_file. Skipping main function addition to preserve original output."
     fi
-    
+
     # Check for incomplete implementations
     if [ "$success" = true ] && [ "$FORCE_CONVERT" = true ]; then
         verify_complete_implementations "$output_file"
     fi
-    
+
     rm -f "$TEMP_PROMPT"
     return $([ "$success" = true ] && echo 0 || echo 1)
 }
@@ -918,13 +934,13 @@ attempt_multi_file_conversion() {
 # Process the input file(s)
 if [ "$MULTI_FILE_MODE" = true ]; then
     echo "Processing multiple Python files..."
-    
+
     # Create a combined file for LLM processing in the temp dir
     COMBINED_FILE="$TEMP_DIR/combined.py"
     FILE_PATHS=()
-    
+
     echo "Creating combined Python file at: $COMBINED_FILE"
-    
+
     # Debug information
     echo "Files to be processed:"
     for file in "${INPUT_FILES[@]}"; do
@@ -938,7 +954,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
         fi
         FILE_PATHS+=("$temp_path")
     done
-    
+
     echo "Main file: $TEMP_DIR/$MAIN_FILE"
     if [ -f "$TEMP_DIR/$MAIN_FILE" ]; then
         echo "  ✓ Main file exists in temp directory"
@@ -958,20 +974,20 @@ if [ "$MULTI_FILE_MODE" = true ]; then
             fi
         done
     fi
-    
+
     # Convert all Python files to C files first
     if [ "$USE_LLM" = true ]; then
         echo "Converting all Python files to C using LLM..."
-        
+
         # First, convert the main file
         combine_files "$COMBINED_FILE" "$TEMP_DIR/$MAIN_FILE" "${FILE_PATHS[@]}"
         echo "Combined files for LLM processing into $COMBINED_FILE"
-    
+
         # Debug: Show contents of combined file
         echo "=== Combined file contents ==="
         cat "$COMBINED_FILE"
         echo "=== End of combined file ==="
-    
+
         # Verify combined file exists and has content
         if [ ! -s "$COMBINED_FILE" ]; then
             echo "ERROR: Combined file is empty or does not exist"
@@ -987,10 +1003,10 @@ if [ "$MULTI_FILE_MODE" = true ]; then
             done
             exit 1
         fi
-        
+
         if attempt_multi_file_conversion "$COMBINED_FILE" "${BASENAME}.c" "$MAIN_FILE"; then
             TARGET_FILE="combined.c"
-            
+
             # Ensure the file exists and is not empty
             if [ ! -s "$TARGET_FILE" ]; then
                 echo "ERROR: Output file $TARGET_FILE is empty or does not exist"
@@ -1001,12 +1017,12 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                 ls -la
                 exit 1
             fi
-            
+
             # Verify and fix incomplete implementations if force convert is enabled
             if [ "$FORCE_CONVERT" = true ]; then
                 verify_complete_implementations "$TARGET_FILE"
             fi
-            
+
             echo "Successfully converted main file and dependencies to C"
         else
             echo "Failed to convert multiple Python files to C using LLM"
@@ -1015,12 +1031,12 @@ if [ "$MULTI_FILE_MODE" = true ]; then
     else
         # Shedskin-based conversion for multi-file
         echo "Using shedskin for multi-file conversion..."
-        
+
         # Create a temporary Python file that imports all modules
         IMPORT_FILE="$TEMP_DIR/combined_imports.py"
         echo "# Auto-generated import file for shedskin multi-file processing" > "$IMPORT_FILE"
         echo "# Main file: $MAIN_FILE" >> "$IMPORT_FILE"
-        
+
         # Add import statements for all files
         for file in "${FILE_PATHS[@]}"; do
             if [ -f "$file" ] && [ "$(basename "$file")" != "$MAIN_FILE" ]; then
@@ -1028,17 +1044,17 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                 echo "import $module_name" >> "$IMPORT_FILE"
             fi
         done
-        
+
         # Add import for main file
         main_module=$(basename "$MAIN_FILE" .py)
         echo "import $main_module" >> "$IMPORT_FILE"
         echo "# End of imports" >> "$IMPORT_FILE"
-        
+
         # Run shedskin on the main file
         echo "Running shedskin on main file: $MAIN_FILE"
         shedskin translate "$MAIN_FILE"
         SHEDSKIN_EXIT=$?
-        
+
         if [ $SHEDSKIN_EXIT -eq 0 ]; then
             echo "Shedskin conversion of main file successful"
             if [ -f "${BASENAME}.cpp" ]; then
@@ -1046,7 +1062,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                     echo "Converting shedskin C++ output to C using LLM..."
                     if attempt_llm_conversion "${BASENAME}.cpp" "${BASENAME}.c"; then
                         TARGET_FILE="${BASENAME}.c"
-                        
+
                         # Verify and fix incomplete implementations if force convert is enabled
                         if [ "$FORCE_CONVERT" = true ]; then
                             verify_complete_implementations "$TARGET_FILE"
@@ -1069,12 +1085,12 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                 combine_files "$COMBINED_FILE" "$TEMP_DIR/$MAIN_FILE" "${FILE_PATHS[@]}"
                 if attempt_multi_file_conversion "$COMBINED_FILE" "${BASENAME}.c" "$MAIN_FILE"; then
                     TARGET_FILE="combined.c"
-                    
+
                     # Ensure the file exists and is not empty
                     if [ ! -s "$TARGET_FILE" ]; then
                         echo "ERROR: Output file $TARGET_FILE is empty or does not exist"
                         echo "This may be due to a model error or resource limitation."
-                        
+
                         # Check if we're using GLM-4.5-Air-4bit model which has known shutdown issues
                         if [[ "$LLM_MODEL" == *"GLM-4.5-Air-4bit"* ]]; then
                             echo "The GLM-4.5-Air-4bit model has known issues with 'cannot schedule new futures after shutdown'"
@@ -1085,7 +1101,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                         else
                             echo "Try using a different model with --model option."
                         fi
-                        
+
                         # Try to debug the issue
                         echo "Debugging information:"
                         echo "Current directory: $(pwd)"
@@ -1093,7 +1109,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
                         ls -la
                         exit 1
                     fi
-                    
+
                     # Verify and fix incomplete implementations if force convert is enabled
                     if [ "$FORCE_CONVERT" = true ]; then
                         verify_complete_implementations "$TARGET_FILE"
@@ -1108,7 +1124,7 @@ if [ "$MULTI_FILE_MODE" = true ]; then
             fi
         fi
     fi
-    
+
     rm -f "$COMBINED_FILE"
 else
     # Single file processing (original logic)
@@ -1117,7 +1133,7 @@ else
             echo "Using direct LLM translation from Python to C..."
             if attempt_llm_conversion "$FILENAME" "${BASENAME}.c"; then
                 TARGET_FILE="${BASENAME}.c"
-                
+
                 # Verify and fix incomplete implementations if force convert is enabled
                 if [ "$FORCE_CONVERT" = true ]; then
                     verify_complete_implementations "$TARGET_FILE"
@@ -1138,7 +1154,7 @@ else
                         echo "Converting shedskin C++ output to C..."
                         if attempt_llm_conversion "${BASENAME}.cpp" "${BASENAME}.c"; then
                             TARGET_FILE="${BASENAME}.c"
-                            
+
                             # Verify and fix incomplete implementations if force convert is enabled
                             if [ "$FORCE_CONVERT" = true ]; then
                                 verify_complete_implementations "$TARGET_FILE"
@@ -1159,7 +1175,7 @@ else
                     echo "Shedskin conversion failed, attempting LLM conversion..."
                     if attempt_llm_conversion "$FILENAME" "${BASENAME}.c"; then
                         TARGET_FILE="${BASENAME}.c"
-                        
+
                         # Verify and fix incomplete implementations if force convert is enabled
                         if [ "$FORCE_CONVERT" = true ]; then
                             verify_complete_implementations "$TARGET_FILE"
@@ -1179,7 +1195,7 @@ else
             echo "Converting $EXTENSION source to C using LLM..."
             if attempt_llm_conversion "$FILENAME" "${BASENAME}.c"; then
                 TARGET_FILE="${BASENAME}.c"
-                
+
                 # Verify and fix incomplete implementations if force convert is enabled
                 if [ "$FORCE_CONVERT" = true ]; then
                     verify_complete_implementations "$TARGET_FILE"
