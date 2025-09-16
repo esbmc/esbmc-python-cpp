@@ -86,9 +86,9 @@ if [ ! -f "$PYTHON_FILE" ]; then
     exit 1
 fi
 
-is_parse_error() {
+is_fixable_error() {
     local error_output="$1"
-    if echo "$error_output" | grep -qE "(failed to open input file|parse error|syntax error|ERROR.*parsing|failed to parse|SyntaxError|IndentationError|TypeError.*string argument|Function is missing.*return type|Call to untyped function)"; then
+    if echo "$error_output" | grep -qE "(failed to open input file|parse error|syntax error|ERROR.*parsing|failed to parse|SyntaxError|IndentationError|TypeError.*string argument|Function is missing.*return type|Call to untyped function|Type inference failed|ERROR:.*Type inference|ERROR:.*at line|ERROR:.*Assign|ERROR:.*Call|ERROR:.*Return|ERROR:.*If|ERROR:.*While|ERROR:.*For|Unsupported|not supported|Unknown type|Invalid type|Missing type annotation)"; then
         return 0
     else
         return 1
@@ -135,24 +135,27 @@ run_aider_fix() {
     local error_output="$2"
     local temp_prompt=$(mktemp)
 
-    print_status "$YELLOW" "Running aider to fix parse errors..."
+    print_status "$YELLOW" "Running aider to fix ESBMC errors..."
 
     cat > "$temp_prompt" << EOF
-The following Python code has parse errors that prevent ESBMC from processing it. Please fix the syntax and parse errors to make it valid Python code that ESBMC can analyze.
+The following Python code has errors that prevent ESBMC from successfully analyzing it. Please fix these errors to make it compatible with ESBMC's static analysis.
 
 ESBMC Error Output:
 ====================
 $error_output
 
 Requirements:
-1. Fix all syntax errors and parse issues
+1. Fix all syntax errors, parse issues, and type inference problems
 2. Ensure the code is valid Python syntax
 3. Preserve the original functionality and logic
-4. Add any missing imports or declarations
+4. Add any missing imports, type annotations, or declarations
 5. Fix any malformed constructs or indentation issues
 6. Ensure compatibility with ESBMC's Python analysis
+7. For type inference errors, add explicit type annotations where needed
+8. For unsupported constructs, replace with ESBMC-compatible alternatives
+9. Ensure all variables are properly declared and typed
 
-Focus only on making the code parseable - do not change the core logic.
+Focus on making the code analyzable by ESBMC while preserving the original intent.
 EOF
 
     if [ "$VERBOSE" = true ]; then
@@ -199,8 +202,8 @@ main() {
             esbmc_exit_code=$?
             print_status "$RED" "ESBMC verification failed (exit code: $esbmc_exit_code)"
 
-            if is_parse_error "$ESBMC_OUTPUT"; then
-                print_status "$YELLOW" "Detected parse error - attempting to fix with aider..."
+            if is_fixable_error "$ESBMC_OUTPUT"; then
+                print_status "$YELLOW" "Detected fixable ESBMC error - attempting to fix with aider..."
 
                 if [ $attempt -eq $MAX_ATTEMPTS ]; then
                     print_status "$RED" "Maximum attempts reached. Cannot fix parse errors."
@@ -214,8 +217,8 @@ main() {
                     exit 1
                 fi
             else
-                print_status "$YELLOW" "ESBMC failed but not due to parse errors."
-                print_status "$GREEN" "Code is parseable. Final verification result:"
+                print_status "$YELLOW" "ESBMC failed with non-fixable errors."
+                print_status "$GREEN" "Final verification result:"
                 echo ""
                 print_status "$RED" "VERIFICATION FAILED:"
                 echo "$ESBMC_OUTPUT"
@@ -227,7 +230,7 @@ main() {
         echo ""
     done
 
-    print_status "$RED" "FAILED: Could not fix parse errors after $MAX_ATTEMPTS attempts"
+    print_status "$RED" "FAILED: Could not fix ESBMC errors after $MAX_ATTEMPTS attempts"
     print_status "$RED" "Final ESBMC output:"
     echo "$ESBMC_OUTPUT"
     exit 1
