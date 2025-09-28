@@ -13,12 +13,13 @@
 
 ---
 
-## 🔧 Installation
+## 🔧 Installation for Mac OS X
 
 ```bash
 git clone https://github.com/esbmc/esbmc-python-cpp.git
-cd esbmc-python-cpp
-./install.sh
+cd esbmc-python-cpp/mac
+./setup-esbmc-mac.sh
+./esbmc-mac.sh to run esbmc
 ```
 
 ---
