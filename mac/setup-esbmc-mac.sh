@@ -14,7 +14,7 @@ fi
 
 # Install Colima and Docker CLI if not already installed
 echo "📦 Installing Colima and Docker CLI..."
-brew install colima docker docker-compose qemu
+brew install colima docker docker-compose qemu lima-additional-guestagents
 
 # Get host CPU count and RAM, set to max CPU and configurable RAM
 HOST_CPUS=$(sysctl -n hw.ncpu)
