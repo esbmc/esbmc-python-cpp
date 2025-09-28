@@ -1,8 +1,6 @@
 #!/bin/bash
-
 # ESBMC with Colima Setup Script
 set -e
-
 echo "🚀 Setting up ESBMC with Colima..."
 
 # Check if Homebrew is installed
@@ -14,7 +12,18 @@ fi
 
 # Install Colima and Docker CLI if not already installed
 echo "📦 Installing Colima and Docker CLI..."
-brew install colima docker docker-compose qemu lima-additional-guestagents
+brew install colima docker docker-compose qemu lima-additional-guestagents docker-buildx
+
+# Fix Docker Buildx Configuration
+echo "🔧 Configuring Docker Buildx..."
+mkdir -p ~/.docker
+cat > ~/.docker/config.json << EOF
+{
+  "cliPluginsExtraDirs": [
+    "/opt/homebrew/lib/docker/cli-plugins"
+  ]
+}
+EOF
 
 # Get host CPU count and RAM, set to max CPU and configurable RAM
 HOST_CPUS=$(sysctl -n hw.ncpu)
@@ -35,6 +44,14 @@ else
     echo "✅ Colima is already running"
     echo "📊 Current Colima status:"
     colima status
+fi
+
+# Verify buildx works, download as fallback if needed
+if ! docker buildx version &> /dev/null; then
+    echo "🔧 Docker Buildx not working, downloading fallback..."
+    mkdir -p ~/.docker/cli-plugins
+    curl -L "https://github.com/docker/buildx/releases/latest/download/buildx-v0.11.2.darwin-amd64" -o ~/.docker/cli-plugins/docker-buildx
+    chmod +x ~/.docker/cli-plugins/docker-buildx
 fi
 
 # Build using docker-compose
