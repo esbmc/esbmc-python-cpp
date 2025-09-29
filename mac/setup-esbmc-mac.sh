@@ -46,6 +46,11 @@ else
     colima status
 fi
 
+# Set Docker context to use Colima
+echo "🔗 Setting Docker context to Colima..."
+export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+docker context use colima 2>/dev/null || docker context create colima --docker "host=unix://$HOME/.colima/default/docker.sock" && docker context use colima
+
 # Verify buildx works, download as fallback if needed
 if ! docker buildx version &> /dev/null; then
     echo "🔧 Docker Buildx not working, downloading fallback..."
