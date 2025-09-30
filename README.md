@@ -20,6 +20,12 @@ git clone https://github.com/esbmc/esbmc-python-cpp.git
 cd esbmc-python-cpp/mac
 ./setup-esbmc-mac.sh
 ./esbmc-mac.sh to run esbmc
+
+To install the local model GLM 4.6 air:
+
+cd llm-mlx
+./run.sh
+This will install the GLM 4.6 4 bit model, which is on par with Claude 4!
 ```
 
 ---
