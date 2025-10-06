@@ -228,7 +228,7 @@ validate_translation() {
 attempt_llm_conversion() {
     local input_file=$1
     local output_file=$2
-    local max_attempts=5
+    local max_attempts=10
     local attempt=1
     local success=false
     local file_extension="${input_file##*.}"
@@ -263,6 +263,9 @@ attempt_llm_conversion() {
         echo "3. Use equivalent C data structures and types"
         echo "4. Preserve any concurrent/parallel behavior"
         echo "5. Include necessary headers and dependencies"
+        echo "6. CRITICAL: NEVER define ESBMC-specific functions like __ESBMC_assume, __ESBMC_assert, etc."
+        echo "   ESBMC provides its own headers and definitions for these functions"
+        echo "7. Do NOT include any ESBMC internal headers or definitions"
         if [ "$TEST_FUNCTION" = true ]; then
             echo "6. Ensure the function '$TEST_FUNCTION_NAME' is correctly converted with:"
             echo "   - Same function name preserved in C"
@@ -308,6 +311,33 @@ attempt_llm_conversion() {
             run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --yes \
                 --message-file "$TEMP_PROMPT" --read "$input_file" "$output_file"
         else
+            # Include error information in subsequent attempts
+            if [ -f "$TEMP_DIR/esbmc_error_$((attempt-1)).txt" ]; then
+                {
+                    echo ""
+                    echo "=== PREVIOUS ATTEMPT ERROR ==="
+                    echo "The previous compilation failed with these errors:"
+                    cat "$TEMP_DIR/esbmc_error_$((attempt-1)).txt"
+                    echo ""
+                    echo "=== FIX INSTRUCTIONS ==="
+                    echo "Please fix these specific errors:"
+                    echo "1. If you see 'conflicting types for __ESBMC_assume' or similar ESBMC function errors:"
+                    echo "   - REMOVE any definitions of __ESBMC_assume, __ESBMC_assert, or other ESBMC functions"
+                    echo "   - These are provided by ESBMC itself and should NOT be defined"
+                    echo "   - Only include standard C headers like <assert.h>, <stdlib.h>, etc."
+                    echo "2. If you see syntax errors, missing semicolons, or other C compilation errors:"
+                    echo "   - Fix the syntax issues in the code"
+                    echo "   - Ensure all statements end with semicolons"
+                    echo "   - Check for unmatched braces or parentheses"
+                    echo "3. If you see 'undefined reference' errors:"
+                    echo "   - Add missing function implementations"
+                    echo "   - Ensure all declared functions are defined"
+                    echo "4. Fix any other compilation errors shown above"
+                    echo "5. Ensure the code compiles cleanly without ESBMC-specific definitions"
+                    echo ""
+                } >> "$TEMP_PROMPT"
+            fi
+            
             if [ "$USE_DOCKER" = true ]; then
                 run_aider --no-git --no-show-model-warnings --model "$LLM_MODEL" --test --auto-test \
                     --test-cmd "docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc --parse-tree-only $output_file" \
@@ -357,7 +387,7 @@ attempt_llm_conversion() {
             
             # Run with explicit error output for debugging
             echo "Running command with stderr visible:" >&2
-            "$CMDRUN" --parse-tree-only "$output_file"
+            ESBMC_ERROR_OUTPUT=$("$CMDRUN" --parse-tree-only "$output_file" 2>&1)
             docker_exit_code=$?
             echo "ESBMC command exit code: $docker_exit_code" >&2
             echo "Exit code meaning: "
@@ -368,6 +398,14 @@ attempt_llm_conversion() {
                 127) echo "COMMAND NOT FOUND" >&2 ;;
                 *) echo "UNKNOWN ERROR CODE" >&2 ;;
             esac
+            
+            # Save the error output for the next attempt
+            if [ $docker_exit_code -ne 0 ]; then
+                echo "$ESBMC_ERROR_OUTPUT" > "$TEMP_DIR/esbmc_error_$attempt.txt"
+                echo "ESBMC error output saved to: $TEMP_DIR/esbmc_error_$attempt.txt"
+                echo "Full error output:" >&2
+                echo "$ESBMC_ERROR_OUTPUT" >&2
+            fi
             
             if [ $docker_exit_code -eq 0 ]; then
                 echo "Successfully generated valid C code on attempt $attempt"
@@ -384,11 +422,20 @@ attempt_llm_conversion() {
             echo "Output file: $output_file" >&2
             echo "Command to be executed: $CMDRUN --parse-tree-only \"$output_file\"" >&2
             
-            if $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
+            # Capture error output for local execution too
+            ESBMC_ERROR_OUTPUT=$("$CMDRUN" --parse-tree-only "$output_file" 2>&1)
+            local_exit_code=$?
+            
+            if [ $local_exit_code -eq 0 ]; then
                 echo "Successfully generated valid C code on attempt $attempt"
                 success=true
             else
-                echo "ESBMC parse tree check failed on attempt $attempt"
+                echo "ESBMC parse tree check failed on attempt $attempt (exit code: $local_exit_code)"
+                # Save the error output for the next attempt
+                echo "$ESBMC_ERROR_OUTPUT" > "$TEMP_DIR/esbmc_error_$attempt.txt"
+                echo "ESBMC error output saved to: $TEMP_DIR/esbmc_error_$attempt.txt"
+                echo "Full error output:" >&2
+                echo "$ESBMC_ERROR_OUTPUT" >&2
                 [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
             fi
         fi
@@ -846,7 +893,7 @@ attempt_multi_file_conversion() {
     local combined_file=$1
     local output_file=$2
     local main_file=$3
-    local max_attempts=5
+    local max_attempts=10
     local attempt=1
     local success=false
 
@@ -879,6 +926,9 @@ attempt_multi_file_conversion() {
         echo "7. Ensure the main entry point works correctly"
         echo "8. COMBINE ALL FILES into a single C file - do not create multiple output files"
         echo "9. Include ALL functionality from ALL input files in the output"
+        echo "10. CRITICAL: NEVER define ESBMC-specific functions like __ESBMC_assume, __ESBMC_assert, etc."
+        echo "    ESBMC provides its own headers and definitions for these functions"
+        echo "11. Do NOT include any ESBMC internal headers or definitions"
         if [ "$FORCE_CONVERT" = true ]; then
             echo "10. IMPORTANT: Implement ALL functions with complete, reasonable implementations"
             echo "   Do NOT leave any function bodies empty or with just comments"
