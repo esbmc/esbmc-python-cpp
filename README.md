@@ -24,8 +24,8 @@ cd esbmc-python-cpp/mac
 To install the local model GLM 4.6 air:
 
 cd llm-mlx
-./run.sh
-This will install the GLM 4.6 4 bit model, which is on par with Claude 4!
+./start_daemon.sh to start the daemon
+./stop_daemon.sh stops the daemon process
 ```
 
 ---
