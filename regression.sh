@@ -37,7 +37,7 @@ for test in "${test_cases[@]}"; do
     [[ $expected == "pass" ]] && expected_result=0 || expected_result=1
 
     # Run test
-    ./verify.sh "$file"
+    ./verify.sh "$file" --llm --direct
     actual_result=$?
 
     # Get results in text form

@@ -7,10 +7,9 @@ VALIDATION_MODE="partial"
 EXPLAIN_VIOLATION=false
 FAST_MODE=false
 TEST_FUNCTION=false
-DOCKER_IMAGE="esbmc"
-CONTAINER_ID=""
 TEMP_DIR=""
 ESBMC_EXTRA_OPTS=""
+ESBMC_EXECUTABLE="esbmc"
 #LLM_MODEL="openrouter/anthropic/claude-3.7-sonnet"
 #LLM_MODEL="openrouter/qwen/qwen3-coder-plus"
 #LLM_MODEL="openai/mlx-community/GLM-4.5-Air-4bit"
@@ -26,6 +25,7 @@ INPUT_FILES=()            # Array to store multiple input files
 MAIN_FILE=""              # Main file to be verified
 FORCE_CONVERT=false       # Flag to force conversion of all lines/functions
 USE_LOCAL_LLM=false       # Flag for using local LLM via aider.sh
+C_FILE_MODE=false         # Flag for processing .c files directly
 
 
 # Prompt file paths
@@ -58,12 +58,13 @@ run_aider() {
 }
 
 show_usage() {
-    echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] [--direct] [--multi-file MAIN_FILE] [--force-convert] [--local-llm] <filename> [<filename2> <filename3> ...]"
+    echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--esbmc-exec EXECUTABLE] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] [--direct] [--multi-file MAIN_FILE] [--force-convert] [--local-llm] [--c-file] <filename> [<filename2> <filename3> ...]"
     echo "Options:"
     echo "  --docker              Run ESBMC in Docker container"
     echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
     echo "  --container ID        Specify existing container ID"
     echo "  --esbmc-opts OPTS     Additional ESBMC options (in quotes)"
+    echo "  --esbmc-exec EXECUTABLE  Specify custom ESBMC executable path (default: esbmc)"
     echo "  --function FUNCTION_NAME   Test function mode (adds --function)"
     echo "  --model MODEL_NAME    Specify LLM model (default: openrouter/anthropic/claude-3.7-sonnet)"
     echo "  --translate MODE      Set translation mode (fast|reasoning)"
@@ -87,6 +88,7 @@ show_usage() {
     echo "                                  local-model-name (use with --local-llm)"
     echo "  --local-llm           Use local LLM via aider.sh (sets OPENAI_API_KEY=dummy and OPENAI_API_BASE=http://localhost:8080/v1)"
     echo "                        Use --model to specify which local model to use"
+    echo "  --c-file              Process .c files directly without conversion (for debugging)"
     exit 1
 }
 
@@ -187,18 +189,33 @@ validate_translation() {
         if [ "$USE_DOCKER" = true ]; then
             CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
                  # Run esbmc in the container with current directory mounted
-            CMRUN='docker exec -w "/workspace" "${CONTAINER_NAME}" esbmc "$@"'
+            CMRUN='docker exec -w "/workspace" "${CONTAINER_NAME}" $ESBMC_EXECUTABLE "$@"'
         else
             CMDRUN="esbmc"
         fi
 
-        if $CMDRUN --parse-tree-only "$converted_file" 2>/dev/null; then
-            echo "Compilation successful"
-            success=true
+        if [ "$USE_DOCKER" = true ]; then
+            # For Docker, we need to capture the exit code differently
+            $CMDRUN --parse-tree-only "$converted_file" 2>/dev/null
+            docker_exit_code=$?
+            if [ $docker_exit_code -eq 0 ]; then
+                echo "Compilation successful"
+                success=true
+            else
+                echo "Compilation failing on attempt $attempt (exit code: $docker_exit_code) - will retry with fixes..."
+                echo "Requesting LLM to fix compilation errors and try again..."
+                sleep 1
+            fi
         else
-            echo "Compilation failing on attempt $attempt - will retry with fixes..."
-            echo "Requesting LLM to fix compilation errors and try again..."
-            sleep 1
+            # For local execution, use the original method
+            if $CMDRUN --parse-tree-only "$converted_file" 2>/dev/null; then
+                echo "Compilation successful"
+                success=true
+            else
+                echo "Compilation failing on attempt $attempt - will retry with fixes..."
+                echo "Requesting LLM to fix compilation errors and try again..."
+                sleep 1
+            fi
         fi
 
         ((attempt++))
@@ -305,15 +322,75 @@ attempt_llm_conversion() {
         if [ "$USE_DOCKER" = true ]; then
             CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
         else
-            CMDRUN="esbmc"
+            CMDRUN="$ESBMC_EXECUTABLE"
         fi
 
-        if $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
-            echo "Successfully generated valid C code on attempt $attempt"
-            success=true
+        # Check if the ESBMC executable is a Docker wrapper
+        if [[ "$ESBMC_EXECUTABLE" == *"docker"* || "$ESBMC_EXECUTABLE" == *"esbmc-mac"* ]]; then
+            # For Docker-based execution, we need to capture the exit code differently
+            echo "=== VERIFY.SH DEBUG INFO ===" >&2
+            echo "Detected Docker-based ESBMC executable: $ESBMC_EXECUTABLE" >&2
+            echo "Current working directory: $(pwd)" >&2
+            echo "Original PWD: $OLD_PWD" >&2
+            
+            # Convert relative path to absolute if needed
+            if [[ "$ESBMC_EXECUTABLE" == ./* ]]; then
+                CMDRUN="$OLD_PWD/$ESBMC_EXECUTABLE"
+                echo "Converted relative path to absolute: $CMDRUN" >&2
+            else
+                CMDRUN="$ESBMC_EXECUTABLE"
+            fi
+            
+            echo "Output file: $output_file" >&2
+            echo "Command to be executed: $CMDRUN --parse-tree-only \"$output_file\"" >&2
+            echo "File exists check: $(test -f "$output_file" && echo "EXISTS" || echo "MISSING")" >&2
+            echo "File size: $(test -f "$output_file" && wc -c < "$output_file" || echo "N/A") bytes" >&2
+            echo "ESBMC executable exists: $(test -f "$CMDRUN" && echo "YES" || echo "NO")" >&2
+            echo "ESBMC executable is executable: $(test -x "$CMDRUN" && echo "YES" || echo "NO")" >&2
+            
+            # Show first few lines of the file for debugging
+            if [ -f "$output_file" ]; then
+                echo "First 10 lines of output file:" >&2
+                head -10 "$output_file" >&2
+                echo "--- End of file preview ---" >&2
+            fi
+            
+            # Run with explicit error output for debugging
+            echo "Running command with stderr visible:" >&2
+            "$CMDRUN" --parse-tree-only "$output_file"
+            docker_exit_code=$?
+            echo "ESBMC command exit code: $docker_exit_code" >&2
+            echo "Exit code meaning: "
+            case $docker_exit_code in
+                0) echo "SUCCESS" >&2 ;;
+                1) echo "GENERAL ERROR" >&2 ;;
+                126) echo "COMMAND NOT EXECUTABLE" >&2 ;;
+                127) echo "COMMAND NOT FOUND" >&2 ;;
+                *) echo "UNKNOWN ERROR CODE" >&2 ;;
+            esac
+            
+            if [ $docker_exit_code -eq 0 ]; then
+                echo "Successfully generated valid C code on attempt $attempt"
+                success=true
+            else
+                echo "ESBMC parse tree check failed on attempt $attempt (exit code: $docker_exit_code)"
+                [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
+            fi
         else
-            echo "ESBMC parse tree check failed on attempt $attempt"
-            [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
+            # For local execution, use the original method
+            echo "=== VERIFY.SH DEBUG INFO ===" >&2
+            echo "Using local ESBMC executable: $ESBMC_EXECUTABLE" >&2
+            echo "Current working directory: $(pwd)" >&2
+            echo "Output file: $output_file" >&2
+            echo "Command to be executed: $CMDRUN --parse-tree-only \"$output_file\"" >&2
+            
+            if $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
+                echo "Successfully generated valid C code on attempt $attempt"
+                success=true
+            else
+                echo "ESBMC parse tree check failed on attempt $attempt"
+                [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
+            fi
         fi
 
         ((attempt++))
@@ -361,6 +438,11 @@ while [[ $# -gt 0 ]]; do
             USE_LOCAL_LLM=true
             USE_LLM=true
             echo "Using local LLM with model: $LLM_MODEL"
+            shift
+            ;;
+        --c-file)
+            C_FILE_MODE=true
+            echo "Processing .c file directly (no conversion)"
             shift
             ;;
         --multi-file)
@@ -417,6 +499,12 @@ while [[ $# -gt 0 ]]; do
         --esbmc-opts)
             [ -z "$2" ] && { echo "Error: --esbmc-opts requires options string"; show_usage; }
             ESBMC_EXTRA_OPTS="$2"
+            shift 2
+            ;;
+        --esbmc-exec)
+            [ -z "$2" ] && { echo "Error: --esbmc-exec requires executable path"; show_usage; }
+            ESBMC_EXECUTABLE="$2"
+            echo "Using custom ESBMC executable: $ESBMC_EXECUTABLE"
             shift 2
             ;;
         --model)
@@ -915,7 +1003,7 @@ attempt_multi_file_conversion() {
         if [ "$USE_DOCKER" = true ]; then
             CMDRUN="docker run --rm -v $(pwd):/workspace -w /workspace $DOCKER_IMAGE esbmc"
         else
-            CMDRUN="esbmc"
+            CMDRUN="$ESBMC_EXECUTABLE"
         fi
 
         if [ "$USE_DOCKER" = true ]; then
@@ -924,12 +1012,26 @@ attempt_multi_file_conversion() {
             file_path="$output_file"
         fi
 
-        if $CMDRUN --parse-tree-only "$file_path" 2>/dev/null; then
-            echo "Successfully generated valid C code on attempt $attempt"
-            success=true
+        if [ "$USE_DOCKER" = true ]; then
+            # For Docker, we need to capture the exit code differently
+            $CMDRUN --parse-tree-only "$file_path" 2>/dev/null
+            docker_exit_code=$?
+            if [ $docker_exit_code -eq 0 ]; then
+                echo "Successfully generated valid C code on attempt $attempt"
+                success=true
+            else
+                echo "ESBMC parse tree check failed on attempt $attempt (exit code: $docker_exit_code)"
+                [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
+            fi
         else
-            echo "ESBMC parse tree check failed on attempt $attempt"
-            [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
+            # For local execution, use the original method
+            if $CMDRUN --parse-tree-only "$file_path" 2>/dev/null; then
+                echo "Successfully generated valid C code on attempt $attempt"
+                success=true
+            else
+                echo "ESBMC parse tree check failed on attempt $attempt"
+                [ $attempt -lt $max_attempts ] && echo "Retrying..." && sleep 1
+            fi
         fi
 
         #if $CMDRUN --parse-tree-only "$output_file" 2>/dev/null; then
@@ -957,8 +1059,26 @@ attempt_multi_file_conversion() {
     return $([ "$success" = true ] && echo 0 || echo 1)
 }
 
-# Process the input file(s)
-if [ "$MULTI_FILE_MODE" = true ]; then
+# Check if we're in C file mode
+if [ "$C_FILE_MODE" = true ]; then
+    echo "Processing C file directly (no conversion needed)..."
+    
+    # Validate that the input file is a .c file
+    if [ "$EXTENSION" != "c" ]; then
+        echo "Error: --c-file mode requires a .c file as input"
+        exit 1
+    fi
+    
+    # Copy the C file to temp directory
+    cp "$FULLPATH" "$TEMP_DIR/$FILENAME"
+    TARGET_FILE="$FILENAME"
+    
+    # Verify and fix incomplete implementations if force convert is enabled
+    if [ "$FORCE_CONVERT" = true ]; then
+        verify_complete_implementations "$TARGET_FILE"
+    fi
+    
+elif [ "$MULTI_FILE_MODE" = true ]; then
     echo "Processing multiple Python files..."
 
     # Create a combined file for LLM processing in the temp dir
@@ -1273,7 +1393,7 @@ if [ "$FAST_MODE" = true ]; then
     ESBMC_EXTRA_OPTS="$ESBMC_EXTRA_OPTS --unwind 10 --no-unwinding-assertions"
 fi
 
-ESBMC_CMD="esbmc --segfault-handler \
+ESBMC_CMD="$ESBMC_EXECUTABLE --segfault-handler \
     -I/usr/include -I/usr/local/include -I. $ESBMC_EXTRA \
     $TARGET_FILE --incremental-bmc --no-bounds-check --no-pointer-check --no-align-check --add-symex-value-sets $THREAD_OPTIONS"
 
@@ -1292,25 +1412,8 @@ run_esbmc_for_function() {
     echo "$current_cmd"
     echo "----------------------------------------"
 
-    if [ "$USE_DOCKER" = true ]; then
-        if [ ! -z "$CONTAINER_ID" ]; then
-            docker exec "$CONTAINER_ID" mkdir -p /workspace
-            docker cp . "$CONTAINER_ID:/workspace/"
-            docker exec -w /workspace "$CONTAINER_ID" bash -c "$current_cmd" 2>&1 | tee "$current_output_file"
-            local exit_code=${PIPESTATUS[0]}
-            docker exec "$CONTAINER_ID" rm -rf /workspace/*
-        else
-            docker run --rm \
-                -v "$(pwd)":/workspace \
-                -w /workspace \
-                "$DOCKER_IMAGE" \
-                bash -c "$current_cmd" 2>&1 | tee "$current_output_file"
-            local exit_code=${PIPESTATUS[0]}
-        fi
-    else
-        eval "$current_cmd" 2>&1 | tee "$current_output_file"
-        local exit_code=${PIPESTATUS[0]}
-    fi
+    eval "$current_cmd" 2>&1 | tee "$current_output_file"
+    local exit_code=${PIPESTATUS[0]}
 
     # If verification failed and explanation was requested, explain the violation
     if [ $exit_code -ne 0 ] && [ "$EXPLAIN_VIOLATION" = true ]; then
@@ -1348,25 +1451,35 @@ else
     ESBMC_OUTPUT_FILE=$(mktemp)
 
     echo "Running ESBMC..."
-    if [ "$USE_DOCKER" = true ]; then
-        if [ ! -z "$CONTAINER_ID" ]; then
-            docker exec "$CONTAINER_ID" mkdir -p /workspace
-            docker cp . "$CONTAINER_ID:/workspace/"
-            docker exec -w /workspace "$CONTAINER_ID" bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
-            OVERALL_EXIT=${PIPESTATUS[0]}
-            docker exec "$CONTAINER_ID" rm -rf /workspace/*
-        else
-            docker run --rm \
-                -v "$(pwd)":/workspace \
-                -w /workspace \
-                "$DOCKER_IMAGE" \
-                bash -c "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
-            OVERALL_EXIT=${PIPESTATUS[0]}
-        fi
+    echo "=== FINAL ESBMC EXECUTION DEBUG ===" >&2
+    echo "ESBMC_EXECUTABLE: $ESBMC_EXECUTABLE" >&2
+    echo "Current directory: $(pwd)" >&2
+    echo "Original PWD: $OLD_PWD" >&2
+            
+    # Convert relative path to absolute if needed
+    if [[ "$ESBMC_EXECUTABLE" == ./* ]]; then
+        FINAL_ESBMC_CMD="$OLD_PWD/$ESBMC_EXECUTABLE"
+        echo "Converted relative path to absolute: $FINAL_ESBMC_CMD" >&2
+        # Update the command to use the absolute path
+        ESBMC_CMD="${ESBMC_CMD/$ESBMC_EXECUTABLE/$FINAL_ESBMC_CMD}"
     else
-        eval "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
-        OVERALL_EXIT=${PIPESTATUS[0]}
+        FINAL_ESBMC_CMD="$ESBMC_EXECUTABLE"
     fi
+            
+    echo "Target file: $TARGET_FILE" >&2
+    echo "Full ESBMC command: $ESBMC_CMD" >&2
+    echo "Checking if target file exists: $(test -f "$TARGET_FILE" && echo "YES" || echo "NO")" >&2
+    echo "ESBMC executable exists: $(test -f "$FINAL_ESBMC_CMD" && echo "YES" || echo "NO")" >&2
+    
+    if [ -f "$TARGET_FILE" ]; then
+        echo "Target file size: $(wc -c < "$TARGET_FILE") bytes" >&2
+        echo "First 5 lines of target file:" >&2
+        head -5 "$TARGET_FILE" >&2
+    fi
+    
+    eval "$ESBMC_CMD" 2>&1 | tee "$ESBMC_OUTPUT_FILE"
+    OVERALL_EXIT=${PIPESTATUS[0]}
+    echo "ESBMC final exit code: $OVERALL_EXIT" >&2
 
     if [ $OVERALL_EXIT -ne 0 ] && [ "$EXPLAIN_VIOLATION" = true ]; then
         echo -e "\nAnalyzing verification failure..."
