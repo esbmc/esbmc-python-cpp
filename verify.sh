@@ -11,7 +11,10 @@ DOCKER_IMAGE="esbmc"
 CONTAINER_ID=""
 TEMP_DIR=""
 ESBMC_EXTRA_OPTS=""
-LLM_MODEL="openrouter/anthropic/claude-3.7-sonnet"
+#LLM_MODEL="openrouter/anthropic/claude-3.7-sonnet"
+#LLM_MODEL="openrouter/qwen/qwen3-coder-plus"
+#LLM_MODEL="openai/mlx-community/GLM-4.5-Air-4bit"
+LLM_MODEL="openrouter/z-ai/glm-4.6"
 TEST_FUNCTION_NAME=""
 TRANSLATION_MODE=""
 USE_ANALYSIS=false
@@ -22,6 +25,8 @@ MULTI_FILE_MODE=false     # Flag for multi-file mode
 INPUT_FILES=()            # Array to store multiple input files
 MAIN_FILE=""              # Main file to be verified
 FORCE_CONVERT=false       # Flag to force conversion of all lines/functions
+USE_LOCAL_LLM=false       # Flag for using local LLM via aider.sh
+
 
 # Prompt file paths
 SOURCE_INSTRUCTION_FILE="prompts/python_prompt.txt"
@@ -31,6 +36,13 @@ MULTI_FILE_INSTRUCTION_FILE="prompts/multi_file_prompt.txt"
 
 # Run aider from venv
 run_aider() {
+    if [ "$USE_LOCAL_LLM" = true ]; then
+        # Set environment variables for local LLM
+        export OPENAI_API_KEY=dummy
+        export OPENAI_API_BASE=http://localhost:8080/v1
+        echo "Using local LLM with OPENAI_API_BASE=$OPENAI_API_BASE"
+    fi
+
     if [ -d "$OLD_PWD/venv" ]; then
         PYTHON_BIN="$OLD_PWD/venv/bin/python"
         AIDER_BIN="$OLD_PWD/venv/bin/aider"
@@ -46,7 +58,7 @@ run_aider() {
 }
 
 show_usage() {
-    echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] [--direct] [--multi-file MAIN_FILE] [--force-convert] <filename> [<filename2> <filename3> ...]"
+    echo "Usage: ./verify.sh [--docker] [--llm] [--image IMAGE_NAME | --container CONTAINER_ID] [--esbmc-opts \"ESBMC_OPTIONS\"] [--model MODEL_NAME] [--translate MODE] [--function FUNCTION_NAME] [--explain] [--fast] [--validate-translation MODE] [--analyze] [--direct] [--multi-file MAIN_FILE] [--force-convert] [--local-llm] <filename> [<filename2> <filename3> ...]"
     echo "Options:"
     echo "  --docker              Run ESBMC in Docker container"
     echo "  --image IMAGE_NAME    Specify Docker image (default: esbmc)"
@@ -68,6 +80,13 @@ show_usage() {
     echo "                        (Can be used with or without --llm)"
     echo "                        Can also accept a glob pattern like '*.py' or 'src/*.py'"
     echo "  --force-convert       Force conversion of all functions with reasonable implementations"
+    echo "  --model MODEL_NAME    Specify LLM model for both cloud and local LLMs"
+    echo "                        Examples: openrouter/anthropic/claude-3-sonnet"
+    echo "                                  openrouter/google/gemini-2.0-flash-001"
+    echo "                                  openai/gpt-4"
+    echo "                                  local-model-name (use with --local-llm)"
+    echo "  --local-llm           Use local LLM via aider.sh (sets OPENAI_API_KEY=dummy and OPENAI_API_BASE=http://localhost:8080/v1)"
+    echo "                        Use --model to specify which local model to use"
     exit 1
 }
 
@@ -338,6 +357,12 @@ while [[ $# -gt 0 ]]; do
         --llm) USE_LLM=true; shift ;;
         --analyze) USE_ANALYSIS=true; shift ;;
         --direct) DIRECT_TRANSLATION=true; USE_LLM=true; shift ;;
+        --local-llm)
+            USE_LOCAL_LLM=true
+            USE_LLM=true
+            echo "Using local LLM with model: $LLM_MODEL"
+            shift
+            ;;
         --multi-file)
             [ -z "$2" ] && { echo "Error: --multi-file requires a main file name or pattern"; show_usage; }
             MULTI_FILE_MODE=true
@@ -397,6 +422,7 @@ while [[ $# -gt 0 ]]; do
         --model)
             [ -z "$2" ] && { echo "Error: --model requires a model name"; show_usage; }
             LLM_MODEL="$2"
+            echo "Using LLM model: $LLM_MODEL"
             shift 2
             ;;
         --function)
