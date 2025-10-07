@@ -3,19 +3,23 @@
 # Default values
 USE_LOCAL_LLM=false
 MODEL_NAME=""
+ESBMC_EXECUTABLE=""
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [--local-llm] [--model MODEL_NAME]"
+    echo "Usage: $0 [--local-llm] [--model MODEL_NAME] [--esbmc-exec EXECUTABLE]"
     echo "Options:"
-    echo "  --local-llm    Use local LLM via aider.sh"
-    echo "  --model MODEL  Specify model name (for both local and cloud)"
+    echo "  --local-llm       Use local LLM via aider.sh"
+    echo "  --model MODEL     Specify model name (for both local and cloud)"
+    echo "  --esbmc-exec EXEC Specify custom ESBMC executable path (default: esbmc)"
     echo ""
     echo "Examples:"
-    echo "  $0                           # Use default cloud model"
-    echo "  $0 --local-llm               # Use local LLM with default model"
-    echo "  $0 --model claude-3-sonnet   # Use specific cloud model"
-    echo "  $0 --local-llm --model llama-3.1-8b  # Use local LLM with specific model"
+    echo "  $0                                    # Use default cloud model and esbmc"
+    echo "  $0 --local-llm                        # Use local LLM with default model"
+    echo "  $0 --model claude-3-sonnet             # Use specific cloud model"
+    echo "  $0 --local-llm --model llama-3.1-8b   # Use local LLM with specific model"
+    echo "  $0 --esbmc-exec ./mac/esbmc-mac.sh    # Use custom ESBMC executable"
+    echo "  $0 --esbmc-exec ./mac/esbmc-mac.sh --local-llm --model llama-3.1-8b  # All options"
     exit 1
 }
 
@@ -29,6 +33,11 @@ while [[ $# -gt 0 ]]; do
         --model)
             [ -z "$2" ] && { echo "Error: --model requires a model name"; show_usage; }
             MODEL_NAME="$2"
+            shift 2
+            ;;
+        --esbmc-exec)
+            [ -z "$2" ] && { echo "Error: --esbmc-exec requires an executable path"; show_usage; }
+            ESBMC_EXECUTABLE="$2"
             shift 2
             ;;
         -h|--help)
@@ -80,6 +89,12 @@ else
     echo "  Model: Default"
 fi
 
+if [ ! -z "$ESBMC_EXECUTABLE" ]; then
+    echo "  ESBMC Executable: $ESBMC_EXECUTABLE"
+else
+    echo "  ESBMC Executable: esbmc (default)"
+fi
+
 # Print table header
 echo -e "\nRunning Tests - Real-time Results:"
 echo "+--------------------------------+-----------+-----------+--------+"
@@ -109,6 +124,10 @@ for test in "${test_cases[@]}"; do
     
     if [ ! -z "$MODEL_NAME" ]; then
         VERIFY_CMD="$VERIFY_CMD --model \"$MODEL_NAME\""
+    fi
+    
+    if [ ! -z "$ESBMC_EXECUTABLE" ]; then
+        VERIFY_CMD="$VERIFY_CMD --esbmc-exec \"$ESBMC_EXECUTABLE\""
     fi
     
     echo "Running: $VERIFY_CMD"

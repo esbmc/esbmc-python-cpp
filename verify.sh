@@ -484,7 +484,13 @@ while [[ $# -gt 0 ]]; do
         --local-llm)
             USE_LOCAL_LLM=true
             USE_LLM=true
-            echo "Using local LLM with model: $LLM_MODEL"
+            # Use default local model if no custom model was specified via --model
+            if [ -z "$MODEL_NAME_OVERRIDE" ]; then
+                LLM_MODEL="openai/mlx-community/GLM-4.5-Air-4bit"
+                echo "Using local LLM with default model: $LLM_MODEL"
+            else
+                echo "Using local LLM with custom model: $LLM_MODEL"
+            fi
             shift
             ;;
         --c-file)
@@ -557,6 +563,7 @@ while [[ $# -gt 0 ]]; do
         --model)
             [ -z "$2" ] && { echo "Error: --model requires a model name"; show_usage; }
             LLM_MODEL="$2"
+            MODEL_NAME_OVERRIDE="$2"  # Track that a custom model was specified
             echo "Using LLM model: $LLM_MODEL"
             shift 2
             ;;
