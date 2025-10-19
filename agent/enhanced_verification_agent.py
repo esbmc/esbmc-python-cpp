@@ -916,11 +916,8 @@ Include:
             }
 
         try:
-            # Try with reduced unwind first, then full if it succeeds
-            attempts = []
-
-            # Start with moderate unwind
-            unwind = 5
+            # Try with moderate unwind first
+            unwind = 10
             esbmc_timeout = 30 if not (check_overflow or check_memory_leak) else 60
 
             print(f"      🔍 Starting verification with unwind={unwind}, timeout={esbmc_timeout}s")
@@ -934,15 +931,44 @@ Include:
                 check_memory_leak=check_memory_leak
             )
 
-            # Check if it timed out
+            # Check for unwinding assertion (needs more unwind)
+            if 'unwinding assertion' in result.get('output', ''):
+                print(f"      ⚠️  Unwinding assertion detected - loop needs more iterations")
+                print(f"      🔄 Retrying with unwind=20 (max)...")
+
+                result = self._run_esbmc_attempt(
+                    output_file, code,
+                    unwind=20,
+                    timeout=esbmc_timeout,
+                    check_overflow=check_overflow,
+                    check_deadlock=check_deadlock,
+                    check_memory_leak=check_memory_leak
+                )
+
+                # Still unwinding assertion? Report to Claude
+                if 'unwinding assertion' in result.get('output', ''):
+                    unwinding_guidance = "\n\n" + "="*60 + "\n"
+                    unwinding_guidance += "⚠️  UNWINDING LIMIT REACHED (max=20)\n"
+                    unwinding_guidance += "="*60 + "\n"
+                    unwinding_guidance += "The loop requires more than 20 iterations to fully verify.\n\n"
+                    unwinding_guidance += "💡 Suggestions:\n"
+                    unwinding_guidance += "1. Add explicit loop bounds to the C code\n"
+                    unwinding_guidance += "2. Add __ESBMC_assume() constraints to limit iterations\n"
+                    unwinding_guidance += "3. Simplify the loop logic if possible\n"
+                    unwinding_guidance += "4. Use convert_python_to_c again with bounded loops\n"
+
+                    result['output'] = result.get('output', '') + unwinding_guidance
+                    result['unwinding_limit_reached'] = True
+
+            # Check if it timed out (actual timeout, not verification failure!)
             if self._esbmc_timed_out(result):
                 print(f"      ⏱️  Timeout detected")
 
-                # Try with even smaller unwind
-                print(f"      🔄 Retry with unwind=3 and basic checks only...")
+                # Try with smaller unwind and basic checks
+                print(f"      🔄 Retry with unwind=5 and basic checks only...")
                 result = self._run_esbmc_attempt(
                     output_file, code,
-                    unwind=3,
+                    unwind=5,
                     timeout=30,
                     check_overflow=False,
                     check_deadlock=False,
@@ -950,7 +976,7 @@ Include:
                 )
 
                 if self._esbmc_timed_out(result):
-                    # Give up and report to Claude - let it regenerate C code
+                    # Give up and report to Claude
                     timeout_guidance = "\n\n" + "="*60 + "\n"
                     timeout_guidance += "⏱️  VERIFICATION TIMEOUT\n"
                     timeout_guidance += "="*60 + "\n"
@@ -980,11 +1006,22 @@ Include:
             }
 
     def _esbmc_timed_out(self, result: Dict) -> bool:
-        """Check if ESBMC timed out"""
+        """Check if ESBMC timed out (NOT verification failure!)"""
         output = result.get('output', '')
-        return ('Timed out' in output or
-                'timeout' in output.lower() or
-                result.get('return_code') == 124)  # Timeout return code
+        return_code = result.get('return_code', 0)
+
+        # Check for actual timeout indicators
+        is_timeout = (
+            'Timed out' in output or
+            ('timeout' in output.lower() and 'timeout' not in output.lower().split('--timeout')[0] if '--timeout' in output.lower() else 'timeout' in output.lower()) or
+            return_code == 124  # Timeout return code
+        )
+
+        # Make sure it's not a verification failure (which is actually success!)
+        is_verification_failure = 'VERIFICATION FAILED' in output
+
+        # Timeout is only if we timed out AND didn't get a verification result
+        return is_timeout and not is_verification_failure
 
     def _run_esbmc_attempt(self, filename: str, code: str, unwind: int, timeout: int,
                           check_overflow: bool = False, check_deadlock: bool = False,
@@ -1008,58 +1045,109 @@ Include:
             enabled_checks.append('memory-leak')
 
         print(f"      🚀 Running: {' '.join(esbmc_cmd)}")
+        print(f"      📡 Streaming output:\n")
 
         try:
-            result = subprocess.run(
+            # Use Popen for live streaming
+            import time
+            process = subprocess.Popen(
                 esbmc_cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
-                timeout=timeout + 10  # Subprocess safety net
+                bufsize=1,  # Line buffered
+                universal_newlines=True
             )
 
-            # Check for option errors
-            error_output = result.stdout + result.stderr
-            if 'unrecognised option' in error_output or 'unknown_option' in error_output:
-                # Try to fix and retry
+            output_lines = []
+            start_time = time.time()
+
+            # Stream output line by line
+            try:
+                for line in process.stdout:
+                    # Print live
+                    print(f"         {line}", end='')
+                    output_lines.append(line)
+
+                    # Check timeout manually
+                    if time.time() - start_time > timeout + 10:
+                        process.kill()
+                        output_lines.append("\n⏱️  ESBMC timeout - process killed\n")
+                        break
+
+                process.wait(timeout=5)  # Wait for process to finish
+                return_code = process.returncode
+
+            except Exception as e:
+                process.kill()
+                output_lines.append(f"\n❌ Error during streaming: {str(e)}\n")
+                return_code = -1
+
+            full_output = ''.join(output_lines)
+
+            # Check for option errors and retry if needed
+            if 'unrecognised option' in full_output or 'unknown_option' in full_output:
                 import re
-                match = re.search(r"unrecognised option '([^']+)'", error_output)
+                match = re.search(r"unrecognised option '([^']+)'", full_output)
                 if match:
                     bad_option = match.group(1)
                     if not bad_option.startswith('--'):
                         bad_option = '--' + bad_option
 
                     fixed_cmd = [arg for arg in esbmc_cmd if arg != bad_option]
-                    print(f"      🔧 Removed bad option: {bad_option}")
+                    print(f"\n      🔧 Removed bad option: {bad_option}")
+                    print(f"      🔄 Retrying with fixed command...\n")
 
-                    result = subprocess.run(
+                    # Recursive retry with fixed command
+                    process = subprocess.Popen(
                         fixed_cmd,
-                        capture_output=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
                         text=True,
-                        timeout=timeout + 10
+                        bufsize=1,
+                        universal_newlines=True
                     )
+
+                    output_lines = []
+                    start_time = time.time()
+
+                    for line in process.stdout:
+                        print(f"         {line}", end='')
+                        output_lines.append(line)
+
+                        if time.time() - start_time > timeout + 10:
+                            process.kill()
+                            output_lines.append("\n⏱️  ESBMC timeout - process killed\n")
+                            break
+
+                    process.wait(timeout=5)
+                    return_code = process.returncode
+                    full_output = ''.join(output_lines)
                     esbmc_cmd = fixed_cmd
 
-            success = result.returncode == 0 and 'VERIFICATION SUCCESSFUL' in result.stdout
+            print()  # New line after streaming
 
-            inspection_note = f"\n\n📝 C file: {os.path.abspath(filename)}"
+            success = return_code == 0 and 'VERIFICATION SUCCESSFUL' in full_output
+
+            inspection_note = f"\n📝 C file: {os.path.abspath(filename)}"
             inspection_note += f"\n💡 Command: {' '.join(esbmc_cmd)}"
 
             return {
                 "tool": "esbmc",
                 "success": success,
-                "output": result.stdout + result.stderr + inspection_note,
-                "return_code": result.returncode,
+                "output": full_output + inspection_note,
+                "return_code": return_code,
                 "enabled_checks": enabled_checks,
                 "saved_file": filename,
                 "command": ' '.join(esbmc_cmd)
             }
 
-        except subprocess.TimeoutExpired:
+        except FileNotFoundError:
             return {
                 "tool": "esbmc",
                 "success": False,
-                "output": f"⏱️  ESBMC timeout after {timeout}s (subprocess killed)\n",
-                "return_code": 124,
+                "output": "ESBMC command not found",
+                "return_code": -1,
                 "enabled_checks": enabled_checks,
                 "saved_file": filename,
                 "command": ' '.join(esbmc_cmd)
