@@ -1,0 +1,25 @@
+# Core dependencies
+anthropic>=0.39.0
+python-dotenv>=1.0.0
+
+# Python verification tools
+mypy>=1.11.0
+pylint>=3.2.0
+bandit>=1.7.9
+
+# Optional but recommended for better analysis
+flake8>=7.1.0
+black>=24.4.2
+isort>=5.13.2
+
+# For AST analysis (built-in, but listing for completeness)
+# ast - standard library
+
+# Note: ESBMC is a separate C/C++ tool that needs system installation
+# Install via: https://github.com/esbmc/esbmc
+# Or on Ubuntu: sudo apt-get install esbmc
+# Or build from source
+
+# For development/testing
+pytest>=8.3.0
+pytest-timeout>=2.3.0
