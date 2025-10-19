@@ -122,6 +122,18 @@ class EnhancedVerificationAgent:
                     },
                     "required": ["code"]
                 }
+            },
+            {
+                "name": "run_deadlock_detector",
+                "description": "Runtime deadlock detection for Python threading code. Instruments locks, detects circular dependencies, monitors thread states, and catches actual deadlocks. Much more reliable than C conversion for threading code.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string", "description": "The Python code with threading to analyze"},
+                        "timeout": {"type": "integer", "description": "Maximum execution time in seconds", "default": 5}
+                    },
+                    "required": ["code"]
+                }
             }
         ]
 
@@ -173,11 +185,19 @@ All tools are installed and available.
 - run_bandit: Security vulnerability scanning
 - run_flake8: Style guide enforcement
 - analyze_ast: Parse and analyze code structure (provides recommended ESBMC checks)
+- run_deadlock_detector: **BEST TOOL FOR THREADING** - Runtime deadlock detection for Python threading code
+  * Instruments locks to track acquisitions
+  * Detects circular wait conditions (Thread A waits for B, B waits for A)
+  * Detects inconsistent lock ordering across threads
+  * Catches actual deadlocks via timeout
+  * Much more reliable than ESBMC for threading code
+  * Use this for ANY code with threading.Lock, threading.Thread, etc.
 - convert_python_to_c: Convert Python to C for formal verification (can use AST analysis results)
 - run_esbmc: Formal verification on C code with intelligent check selection
   * Available checks: overflow, bounds, div-by-zero, deadlock, pointer, memory-leak
   * Use AST analysis recommendations to select appropriate checks
   * Set specific check flags (check_overflow, check_bounds, etc.) based on code patterns
+  * **NOT RECOMMENDED for threading code** - use run_deadlock_detector instead
 
 **Your Strategy:**
 1. Always start with analyze_ast to understand the code structure
@@ -186,15 +206,16 @@ All tools are installed and available.
    - If type annotations present: use mypy
    - Always use: pylint, flake8, bandit for comprehensive checking
    - Always try to execute: run_python_interpreter (unless it's clearly unsafe)
-3. For formal verification with ESBMC:
+   - **If threading detected: ALWAYS use run_deadlock_detector** (much better than ESBMC for concurrency)
+3. For formal verification with ESBMC (non-threading code only):
    - Convert to C using convert_python_to_c (pass AST analysis if available)
    - Run ESBMC with appropriate checks based on AST analysis recommendations:
      * check_overflow=true for arithmetic operations (add, multiply, subtract)
      * check_bounds=true for array/list access
      * check_div_by_zero=true for division operations
-     * check_deadlock=true for threading/concurrency
      * check_pointer=true for pointer operations
      * check_memory_leak=true for dynamic memory allocation
+     * **Do NOT use check_deadlock=true** - use run_deadlock_detector instead
 4. Use at least 4-6 different tools for thorough verification
 5. Provide detailed analysis of each tool's findings
 
@@ -434,7 +455,8 @@ Include:
             "run_flake8": self._run_flake8,
             "convert_python_to_c": self._convert_to_c,
             "run_esbmc": self._run_esbmc,
-            "analyze_ast": self._analyze_ast
+            "analyze_ast": self._analyze_ast,
+            "run_deadlock_detector": self._run_deadlock_detector
         }
 
         handler = handlers.get(tool_name)
@@ -1163,6 +1185,257 @@ Include:
                 "command": ' '.join(esbmc_cmd)
             }
 
+    def _run_deadlock_detector(self, code: str, timeout: int = 5, **kwargs) -> Dict:
+        """Advanced runtime deadlock detection for Python threading code"""
+
+        # Create instrumented wrapper code
+        instrumented_code = '''
+import threading
+import time
+import sys
+from collections import defaultdict
+
+# Global state for deadlock detection
+lock_graph = defaultdict(set)  # thread_id -> set of locks held
+wait_graph = defaultdict(set)  # thread_id -> lock waiting for
+lock_holders = {}  # lock_id -> thread_id holding it
+lock_order = defaultdict(list)  # thread_id -> ordered list of lock acquisitions
+all_locks = {}  # lock_id -> lock object
+deadlock_detected = []
+lock_events = []
+
+class InstrumentedLock:
+    """Wrapper for threading.Lock with deadlock detection"""
+    _lock_counter = 0
+    _counter_lock = threading.Lock()
+
+    def __init__(self, original_lock):
+        self._lock = original_lock
+        with InstrumentedLock._counter_lock:
+            self.lock_id = InstrumentedLock._lock_counter
+            InstrumentedLock._lock_counter += 1  # Fixed: was _counter_lock
+        all_locks[self.lock_id] = self
+
+    def acquire(self, blocking=True, timeout=-1):
+        thread_id = threading.get_ident()
+        thread_name = threading.current_thread().name
+
+        lock_events.append(f"[{thread_name}] Attempting to acquire Lock#{self.lock_id}")
+
+        # Check for potential deadlock before acquiring
+        wait_graph[thread_id].add(self.lock_id)
+
+        # Detect circular wait
+        if self._detect_cycle(thread_id):
+            cycle_info = self._get_cycle_info(thread_id)
+            deadlock_detected.append({
+                'type': 'circular_wait',
+                'thread': thread_name,
+                'cycle': cycle_info,
+                'message': f"Circular wait detected: {cycle_info}"
+            })
+            lock_events.append(f"[{thread_name}] ⚠️  CIRCULAR WAIT DETECTED: {cycle_info}")
+
+        # Try to acquire with timeout
+        start_time = time.time()
+
+        # Handle timeout parameter correctly
+        if timeout == -1:
+            acquired = self._lock.acquire(blocking=blocking)
+        else:
+            acquired = self._lock.acquire(blocking=blocking, timeout=timeout)
+
+        wait_time = time.time() - start_time
+
+        if acquired:
+            wait_graph[thread_id].discard(self.lock_id)
+            lock_graph[thread_id].add(self.lock_id)
+            lock_holders[self.lock_id] = thread_id
+            lock_order[thread_id].append(self.lock_id)
+            lock_events.append(f"[{thread_name}] ✓ Acquired Lock#{self.lock_id} (waited {wait_time:.3f}s)")
+
+            # Check for inconsistent lock ordering
+            self._check_lock_ordering(thread_id)
+        else:
+            lock_events.append(f"[{thread_name}] ✗ Failed to acquire Lock#{self.lock_id}")
+            wait_graph[thread_id].discard(self.lock_id)
+
+        return acquired
+
+    def release(self):
+        thread_id = threading.get_ident()
+        thread_name = threading.current_thread().name
+
+        if self.lock_id in lock_graph[thread_id]:
+            lock_graph[thread_id].discard(self.lock_id)
+            if self.lock_id in lock_order[thread_id]:
+                lock_order[thread_id].remove(self.lock_id)
+
+        if lock_holders.get(self.lock_id) == thread_id:
+            del lock_holders[self.lock_id]
+
+        self._lock.release()
+        lock_events.append(f"[{thread_name}] Released Lock#{self.lock_id}")
+
+    def _detect_cycle(self, start_thread):
+        """Detect if there's a circular wait condition"""
+        visited = set()
+        rec_stack = set()
+
+        def dfs(thread_id):
+            visited.add(thread_id)
+            rec_stack.add(thread_id)
+
+            # Get locks this thread is waiting for
+            for lock_id in wait_graph[thread_id]:
+                # Who holds this lock?
+                holder = lock_holders.get(lock_id)
+                if holder is not None:
+                    if holder == start_thread:
+                        return True  # Cycle found!
+                    if holder not in visited:
+                        if dfs(holder):
+                            return True
+                    elif holder in rec_stack:
+                        return True
+
+            rec_stack.discard(thread_id)
+            return False
+
+        return dfs(start_thread)
+
+    def _get_cycle_info(self, thread_id):
+        """Get detailed cycle information"""
+        cycles = []
+        for lock_id in wait_graph[thread_id]:
+            holder = lock_holders.get(lock_id)
+            if holder:
+                try:
+                    holder_thread = threading._active.get(holder)
+                    holder_name = holder_thread.name if holder_thread else f"Thread-{holder}"
+                except:
+                    holder_name = f"Thread-{holder}"
+                cycles.append(f"Thread[{threading.current_thread().name}] waits for Lock#{lock_id} held by Thread[{holder_name}]")
+        return " -> ".join(cycles) if cycles else "Unknown cycle"
+
+    def _check_lock_ordering(self, thread_id):
+        """Check for inconsistent lock ordering (potential future deadlock)"""
+        current_order = lock_order[thread_id]
+        if len(current_order) >= 2:
+            # Check if this ordering conflicts with other threads
+            for other_thread, other_order in lock_order.items():
+                if other_thread != thread_id and len(other_order) >= 2:
+                    # Look for reversed pairs
+                    for i in range(len(current_order) - 1):
+                        for j in range(len(other_order) - 1):
+                            if (current_order[i] == other_order[j+1] and
+                                current_order[i+1] == other_order[j]):
+                                deadlock_detected.append({
+                                    'type': 'lock_ordering_violation',
+                                    'thread': threading.current_thread().name,
+                                    'message': f"Inconsistent lock ordering detected: This thread acquires Lock#{current_order[i]} then Lock#{current_order[i+1]}, but another thread acquires them in reverse order"
+                                })
+                                lock_events.append(f"[{threading.current_thread().name}] ⚠️  LOCK ORDERING VIOLATION detected")
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
+        return False
+
+# Monkey-patch threading.Lock
+_original_Lock = threading.Lock
+def _instrumented_Lock():
+    return InstrumentedLock(_original_Lock())
+threading.Lock = _instrumented_Lock
+
+# User code starts here
+try:
+''' + '\n'.join('    ' + line for line in code.split('\n')) + '''
+except Exception as e:
+    print(f"\\n❌ Exception during execution: {e}", file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+# User code ends here
+
+# Print summary
+if deadlock_detected or lock_events:
+    print("\\n" + "="*60)
+    print("DEADLOCK DETECTION SUMMARY")
+    print("="*60)
+
+    if deadlock_detected:
+        print(f"\\n⚠️  Found {len(deadlock_detected)} potential deadlock issue(s):\\n")
+        for i, issue in enumerate(deadlock_detected, 1):
+            print(f"{i}. [{issue['type']}] {issue['message']}")
+
+    if lock_events:
+        print(f"\\n📋 Lock Event Trace ({len(lock_events)} events):\\n")
+        for event in lock_events:
+            print(f"  {event}")
+'''
+
+        # Write to temp file and execute
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write(instrumented_code)
+            temp = f.name
+
+        try:
+            # Run with timeout
+            result = subprocess.run(
+                ['python3', temp],
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+
+            # Parse output for deadlock info
+            output = result.stdout + result.stderr
+
+            # Check for actual deadlock (timeout while running)
+            if result.returncode != 0 and "Timeout" not in output:
+                # Check if threads were blocked
+                if "lock" in output.lower() or "thread" in output.lower():
+                    output += "\n\n⚠️  Execution failed with threading-related error - possible deadlock"
+
+            success = (result.returncode == 0 and
+                      "CIRCULAR WAIT" not in output and
+                      "LOCK ORDERING VIOLATION" not in output and
+                      "Found" not in output.split("potential deadlock issue")[0] if "potential deadlock issue" in output else True)
+
+            if success:
+                output = "✓ No deadlocks detected\n\n" + output
+            else:
+                output = "❌ Potential deadlock issues detected\n\n" + output
+
+            return {
+                "tool": "deadlock_detector",
+                "success": success,
+                "output": output,
+                "return_code": result.returncode
+            }
+
+        except subprocess.TimeoutExpired:
+            # Actual deadlock - threads hung
+            output = "❌ DEADLOCK DETECTED - Execution timed out\n\n"
+            output += f"The code did not complete within {timeout} seconds.\n"
+            output += "This indicates threads are blocked waiting for each other (deadlock).\n\n"
+            output += "Common causes:\n"
+            output += "  • Thread A holds Lock1, waits for Lock2\n"
+            output += "  • Thread B holds Lock2, waits for Lock1\n"
+            output += "  • Neither can proceed → deadlock\n"
+
+            return {
+                "tool": "deadlock_detector",
+                "success": False,
+                "output": output,
+                "return_code": 124
+            }
+        finally:
+            os.unlink(temp)
+
     def _analyze_ast(self, code: str, **kwargs) -> Dict:
         """Analyze Python AST"""
         try:
@@ -1233,8 +1506,6 @@ Include:
                 esbmc_checks.append("bounds")
             if analysis["has_division"]:
                 esbmc_checks.append("div-by-zero")
-            if analysis["has_threading"]:
-                esbmc_checks.append("deadlock")
             if analysis["has_pointer_ops"]:
                 esbmc_checks.append("pointer")
 
@@ -1259,7 +1530,7 @@ Include:
             output += f"  • Has multiplication: {'Yes' if analysis['has_multiplication'] else 'No'}\n"
             output += f"  • Has division operations: {'Yes' if analysis['has_division'] else 'No'}\n"
             output += f"  • Has array/subscript access: {'Yes' if analysis['has_array_access'] else 'No'}\n"
-            output += f"  • Uses threading: {'Yes' if analysis['has_threading'] else 'No'}\n"
+            output += f"  • Uses threading: {'Yes ⚠️' if analysis['has_threading'] else 'No'}\n"
 
             output += "\n🔍 Verification Recommendations:\n"
 
@@ -1267,16 +1538,24 @@ Include:
             if analysis['has_type_hints']:
                 recommendations.append("  • mypy (type checking)")
 
-            if esbmc_checks:
+            if analysis['has_threading']:
+                recommendations.append("  • run_deadlock_detector (RECOMMENDED for threading - much better than ESBMC)")
+
+            if esbmc_checks and not analysis['has_threading']:
                 checks_str = ", ".join(esbmc_checks)
                 recommendations.append(f"  • convert_python_to_c + esbmc with checks: {checks_str}")
-            elif analysis['has_division'] or analysis['has_array_access']:
+            elif (analysis['has_division'] or analysis['has_array_access']) and not analysis['has_threading']:
                 recommendations.append("  • convert_python_to_c + esbmc (formal verification)")
 
             if 'os' in analysis['imports'] or 'subprocess' in analysis['imports']:
                 recommendations.append("  • bandit (security scanning)")
             recommendations.append("  • pylint (code quality)")
             recommendations.append("  • flake8 (style checking)")
+
+            if analysis['has_threading']:
+                output += "\n⚠️  THREADING DETECTED:\n"
+                output += "  Use run_deadlock_detector for reliable concurrency verification.\n"
+                output += "  Python-to-C conversion loses threading semantics!\n\n"
 
             output += "\n".join(recommendations)
 
@@ -1422,6 +1701,7 @@ Examples:
   # Force specific tools
   python enhanced_verification_agent.py mycode.py --force-esbmc
   python enhanced_verification_agent.py mycode.py --force-mypy --force-bandit
+  python enhanced_verification_agent.py threading_code.py --force-deadlock
 
   # Set max iterations
   python enhanced_verification_agent.py mycode.py --max-iterations 15
@@ -1443,6 +1723,8 @@ Examples:
                        help='Force bandit security scan')
     parser.add_argument('--force-python', action='store_true',
                        help='Force Python interpreter execution')
+    parser.add_argument('--force-deadlock', action='store_true',
+                       help='Force runtime deadlock detector for threading code')
     parser.add_argument('--force-esbmc', action='store_true',
                        help='Force ESBMC formal verification (includes Python-to-C conversion)')
 
@@ -1471,6 +1753,8 @@ Examples:
         force_tools.append('run_bandit')
     if args.force_python:
         force_tools.append('run_python_interpreter')
+    if args.force_deadlock:
+        force_tools.append('run_deadlock_detector')
     if args.force_esbmc:
         force_tools.append('convert_python_to_c')
         force_tools.append('run_esbmc')
@@ -1520,6 +1804,35 @@ def process_data(items: list) -> int:
     subprocess.call(cmd, shell=True)
 
     return average
+"""),
+
+        ("Threading Deadlock", """import threading
+import time
+
+lock1 = threading.Lock()
+lock2 = threading.Lock()
+
+def thread1():
+    with lock1:
+        print("Thread 1 acquired lock1")
+        time.sleep(0.1)
+        with lock2:
+            print("Thread 1 acquired lock2")
+
+def thread2():
+    with lock2:
+        print("Thread 2 acquired lock2")
+        time.sleep(0.1)
+        with lock1:
+            print("Thread 2 acquired lock1")
+
+t1 = threading.Thread(target=thread1)
+t2 = threading.Thread(target=thread2)
+t1.start()
+t2.start()
+t1.join()
+t2.join()
+print("Done")
 """)
     ]
 
@@ -1569,6 +1882,7 @@ def process_data(items: list) -> int:
     else:
         # Run demo
         print("No file provided. Running demo test...\n")
+        print("💡 To test threading deadlock detection, use: --force-deadlock\n")
         agent = EnhancedVerificationAgent(api_key=api_key, force_tools=force_tools)
 
         name, code = test_cases[0]
