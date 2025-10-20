@@ -18,10 +18,13 @@ class EnhancedVerificationAgent:
     All tools must be installed - this agent does not adapt to missing tools.
     """
 
-    def __init__(self, api_key: str, force_tools: List[str] = None):
+    def __init__(self, api_key: str, force_tools: List[str] = None, esbmc_path: str = None):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = "claude-sonnet-4-5-20250929"
         self.force_tools = force_tools or []
+
+        # ESBMC executable path (default to 'esbmc' in PATH)
+        self.esbmc_path = esbmc_path or os.environ.get('ESBMC_PATH', 'esbmc')
 
         # Verify required tools are installed
         self._check_prerequisites()
@@ -161,7 +164,28 @@ class EnhancedVerificationAgent:
             print("⚠️  Warning: Some tools are not installed:")
             print("\n".join(missing))
             print("\nRun: pip install -r requirements.txt")
+
+        # Check ESBMC if path is specified
+        if self.esbmc_path != 'esbmc':
+            print(f"\n🔍 Checking ESBMC at: {self.esbmc_path}")
+            if not os.path.exists(self.esbmc_path):
+                print(f"⚠️  Warning: ESBMC not found at {self.esbmc_path}")
+            else:
+                try:
+                    result = subprocess.run([self.esbmc_path, '--version'],
+                                          capture_output=True,
+                                          timeout=5,
+                                          check=False)
+                    if result.returncode == 0:
+                        version_output = result.stdout.decode('utf-8').split('\n')[0]
+                        print(f"✓ Found: {version_output}")
+                    else:
+                        print(f"⚠️  ESBMC executable found but version check failed")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not verify ESBMC: {e}")
+        else:
             print("\nNote: ESBMC requires separate installation (optional)")
+            print("      Use --esbmc-path to specify custom location")
 
     def verify(self, code: str, max_iterations: int = 10) -> Dict:
         """
@@ -1020,10 +1044,14 @@ Include:
             return result
 
         except FileNotFoundError:
+            esbmc_location = f"at {self.esbmc_path}" if self.esbmc_path != 'esbmc' else "in PATH"
             return {
                 "tool": "esbmc",
                 "success": False,
-                "output": "ESBMC not installed. Install from: https://github.com/esbmc/esbmc\n" +
+                "output": f"ESBMC not found {esbmc_location}.\n" +
+                         f"Install from: https://github.com/esbmc/esbmc\n" +
+                         f"Or specify path with: --esbmc-path /path/to/esbmc\n" +
+                         f"Or set environment variable: export ESBMC_PATH=/path/to/esbmc\n\n" +
                          "This is optional for basic verification."
             }
 
@@ -1050,7 +1078,7 @@ Include:
                           check_memory_leak: bool = False) -> Dict:
         """Single ESBMC verification attempt with specific parameters"""
 
-        esbmc_cmd = ['esbmc', filename, '--unwind', str(unwind), '--timeout', str(timeout)]
+        esbmc_cmd = [self.esbmc_path, filename, '--unwind', str(unwind), '--timeout', str(timeout)]
 
         enabled_checks = ['bounds-check', 'div-by-zero-check', 'pointer-check']
 
@@ -1698,6 +1726,14 @@ Examples:
   # Verify a file
   python enhanced_verification_agent.py mycode.py
 
+  # Use custom ESBMC location
+  python enhanced_verification_agent.py mycode.py --esbmc-path /usr/local/bin/esbmc
+  python enhanced_verification_agent.py mycode.py --esbmc-path ./esbmc-build/bin/esbmc
+
+  # Use ESBMC_PATH environment variable
+  export ESBMC_PATH=/path/to/esbmc
+  python enhanced_verification_agent.py mycode.py
+
   # Force specific tools
   python enhanced_verification_agent.py mycode.py --force-esbmc
   python enhanced_verification_agent.py mycode.py --force-mypy --force-bandit
@@ -1711,6 +1747,8 @@ Examples:
     parser.add_argument('file', nargs='?', help='Python file to verify')
     parser.add_argument('--max-iterations', type=int, default=10,
                        help='Maximum verification iterations (default: 10)')
+    parser.add_argument('--esbmc-path', type=str, default=None,
+                       help='Path to ESBMC executable (default: esbmc in PATH, or ESBMC_PATH env var)')
     parser.add_argument('--force-ast', action='store_true',
                        help='Force AST analysis')
     parser.add_argument('--force-mypy', action='store_true',
@@ -1761,6 +1799,9 @@ Examples:
 
     if force_tools:
         print(f"🔧 Forced tools: {', '.join(force_tools)}\n")
+
+    if args.esbmc_path:
+        print(f"🔧 Using ESBMC from: {args.esbmc_path}\n")
 
     # Test cases
     test_cases = [
@@ -1841,7 +1882,11 @@ print("Done")
         with open(args.file) as f:
             code = f.read()
 
-        agent = EnhancedVerificationAgent(api_key=api_key, force_tools=force_tools)
+        agent = EnhancedVerificationAgent(
+            api_key=api_key,
+            force_tools=force_tools,
+            esbmc_path=args.esbmc_path
+        )
         result = agent.verify(code, max_iterations=args.max_iterations)
 
         print(f"\n{'='*80}")
@@ -1883,7 +1928,11 @@ print("Done")
         # Run demo
         print("No file provided. Running demo test...\n")
         print("💡 To test threading deadlock detection, use: --force-deadlock\n")
-        agent = EnhancedVerificationAgent(api_key=api_key, force_tools=force_tools)
+        agent = EnhancedVerificationAgent(
+            api_key=api_key,
+            force_tools=force_tools,
+            esbmc_path=args.esbmc_path
+        )
 
         name, code = test_cases[0]
         print(f"\n{'='*80}")
