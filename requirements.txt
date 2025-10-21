@@ -1,2 +1,10 @@
 shedskin@git+https://github.com/shedskin/shedskin.git@v0.9.10#egg=shedskin
 pipx
+mypy
+pylint
+bandit
+flake8
+hypothesis
+crosshair-tool
+icontract
+pytest

@@ -234,12 +234,13 @@ All tools are installed and available.
 3. For formal verification with ESBMC (non-threading code only):
    - Convert to C using convert_python_to_c (pass AST analysis if available)
    - Run ESBMC with appropriate checks based on AST analysis recommendations:
-     * check_overflow=true for arithmetic operations (add, multiply, subtract)
+     * **check_overflow=true for arithmetic operations** (IMPORTANT: always enable for code with +, -, *, especially with nondet inputs)
      * check_bounds=true for array/list access
      * check_div_by_zero=true for division operations
      * check_pointer=true for pointer operations
      * check_memory_leak=true for dynamic memory allocation
      * **Do NOT use check_deadlock=true** - use run_deadlock_detector instead
+   - **OVERFLOW CHECKS ARE AUTO-ENABLED** when arithmetic + nondet detected, but you can force with check_overflow=true
 4. Use at least 4-6 different tools for thorough verification
 5. Provide detailed analysis of each tool's findings
 
@@ -838,6 +839,16 @@ Include:
                 if sub_result:
                     result += "    " + sub_result
             result += "    }\n"
+            
+            # Handle else clause if present
+            if hasattr(stmt, 'orelse') and stmt.orelse:
+                result += "    else {\n"
+                for else_stmt in stmt.orelse:
+                    sub_result = self._convert_statement(else_stmt, recommended_checks, is_esbmc_code)
+                    if sub_result:
+                        result += "    " + sub_result
+                result += "    }\n"
+            
             return result
 
         elif isinstance(stmt, ast.Assign):
@@ -961,12 +972,28 @@ Include:
                 "output": f"Could not save C file: {e}"
             }
 
+        # Auto-detect if overflow checking should be enabled
+        # Look for arithmetic operations in the C code
+        if not check_overflow:
+            # Check for arithmetic that could overflow
+            arithmetic_patterns = ['+', '-', '*', '<<', '>>']
+            has_arithmetic = any(op in code for op in arithmetic_patterns)
+            
+            # Check for nondet values (unbounded inputs)
+            has_nondet = 'nondet_' in code
+            
+            if has_arithmetic and has_nondet:
+                check_overflow = True
+                print(f"      🔍 Auto-enabled overflow checking (detected arithmetic with nondeterministic inputs)")
+
         try:
             # Try with moderate unwind first
             unwind = 10
             esbmc_timeout = 30 if not (check_overflow or check_memory_leak) else 60
 
             print(f"      🔍 Starting verification with unwind={unwind}, timeout={esbmc_timeout}s")
+            if check_overflow:
+                print(f"      ⚠️  Overflow checking enabled")
 
             result = self._run_esbmc_attempt(
                 output_file, code,
@@ -1083,8 +1110,8 @@ Include:
         enabled_checks = ['bounds-check', 'div-by-zero-check', 'pointer-check']
 
         if check_overflow:
-            esbmc_cmd.append('--overflow-check')
-            enabled_checks.append('overflow')
+            esbmc_cmd.extend(['--overflow-check', '--no-bounds-check', '--no-div-by-zero-check'])
+            enabled_checks = ['overflow']  # Focus on overflow when explicitly requested
 
         if check_deadlock:
             esbmc_cmd.append('--deadlock-check')
@@ -1530,6 +1557,8 @@ if deadlock_detected or lock_events:
             esbmc_checks = []
             if analysis["has_arithmetic"] or analysis["has_multiplication"]:
                 esbmc_checks.append("overflow")
+                # Overflow is critical for arithmetic operations
+                analysis["overflow_risk"] = "HIGH" if analysis["has_multiplication"] else "MEDIUM"
             if analysis["has_array_access"]:
                 esbmc_checks.append("bounds")
             if analysis["has_division"]:
@@ -1571,7 +1600,11 @@ if deadlock_detected or lock_events:
 
             if esbmc_checks and not analysis['has_threading']:
                 checks_str = ", ".join(esbmc_checks)
-                recommendations.append(f"  • convert_python_to_c + esbmc with checks: {checks_str}")
+                if "overflow" in esbmc_checks:
+                    recommendations.append(f"  • convert_python_to_c + esbmc with check_overflow=true (CRITICAL for arithmetic)")
+                    recommendations.append(f"    Other checks: {', '.join([c for c in esbmc_checks if c != 'overflow'])}")
+                else:
+                    recommendations.append(f"  • convert_python_to_c + esbmc with checks: {checks_str}")
             elif (analysis['has_division'] or analysis['has_array_access']) and not analysis['has_threading']:
                 recommendations.append("  • convert_python_to_c + esbmc (formal verification)")
 

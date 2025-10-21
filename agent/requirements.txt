@@ -12,6 +12,12 @@ flake8>=7.1.0
 black>=24.4.2
 isort>=5.13.2
 
+# Property-based testing and formal verification tools
+hypothesis>=6.0.0
+crosshair-tool>=0.0.60
+icontract>=2.6.0
+pytest>=8.3.0
+
 # For AST analysis (built-in, but listing for completeness)
 # ast - standard library
 
@@ -21,5 +27,4 @@ isort>=5.13.2
 # Or build from source
 
 # For development/testing
-pytest>=8.3.0
 pytest-timeout>=2.3.0
