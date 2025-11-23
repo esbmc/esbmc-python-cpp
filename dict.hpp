@@ -158,6 +158,62 @@ public:
     __ss_int __len__() const {
         return size_;
     }
+
+    // Get value or default
+    V get(const K& key, const V& default_val) const {
+        for (__ss_int i = 0; i < SIZE; i++) {
+            if (used[i] && keys[i] == key) {
+                return values[i];
+            }
+        }
+        return default_val;
+    }
+
+    // Return list of keys
+    list<K>* keys_list() const {
+        list<K>* out = new list<K>();
+        for (__ss_int i = 0; i < SIZE; i++) {
+            if (used[i]) {
+                out->append(keys[i]);
+            }
+        }
+        return out;
+    }
+
+    // Return list of values
+    list<V>* values_list() const {
+        list<V>* out = new list<V>();
+        for (__ss_int i = 0; i < SIZE; i++) {
+            if (used[i]) {
+                out->append(values[i]);
+            }
+        }
+        return out;
+    }
+
+    // Return list of (key, value) tuples
+    list<tuple2<K,V>*>* items_list() const {
+        list<tuple2<K,V>*>* out = new list<tuple2<K,V>*>();
+        for (__ss_int i = 0; i < SIZE; i++) {
+            if (used[i]) {
+                tuple2<K,V>* t = new tuple2<K,V>(2, keys[i], values[i]);
+                out->append(t);
+            }
+        }
+        return out;
+    }
+
+    list<K>* keys() const {
+        return keys_list();
+    }
+
+    list<V>* values() const {
+        return values_list();
+    }
+
+    list<tuple2<K,V>*>* items() const {
+        return items_list();
+    }
 };
 
 } // namespace shedskin
