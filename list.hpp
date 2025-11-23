@@ -458,6 +458,78 @@ public:
         return value;  // Returns the deleted element
     }
 
+    // Count occurrences of a value
+    __ss_int count(const T& value) const {
+        __ss_int cnt = 0;
+        Node* current = head;
+        while (current) {
+            if (current->data == value) {
+                cnt++;
+            }
+            current = current->next;
+        }
+        return cnt;
+    }
+
+    // Find first index of value (supports negative start), raises if not found
+    __ss_int index(const T& value, __ss_int start = 0) const {
+        if (start < 0) {
+            start = size_ + start;
+        }
+        if (start < 0) start = 0;
+        if (start >= size_) {
+            throw std::out_of_range("list.index(x): x not in list");
+        }
+
+        Node* current = head;
+        for (__ss_int i = 0; i < start && current; i++) {
+            current = current->next;
+        }
+
+        __ss_int idx = start;
+        while (current) {
+            if (current->data == value) {
+                return idx;
+            }
+            current = current->next;
+            idx++;
+        }
+        throw std::out_of_range("list.index(x): x not in list");
+    }
+
+    // Remove first occurrence; raises if not found
+    void remove(const T& value) {
+        if (!head) {
+            throw std::out_of_range("list.remove(x): x not in list");
+        }
+
+        Node* current = head;
+        Node* previous = nullptr;
+        __ss_int idx = 0;
+        while (current) {
+            if (current->data == value) {
+                if (previous) {
+                    previous->next = current->next;
+                    if (current == tail) {
+                        tail = previous;
+                    }
+                } else {
+                    head = current->next;
+                    if (!head) {
+                        tail = nullptr;
+                    }
+                }
+                delete current;
+                size_--;
+                return;
+            }
+            previous = current;
+            current = current->next;
+            idx++;
+        }
+        throw std::out_of_range("list.remove(x): x not in list");
+    }
+
 };
 
 
