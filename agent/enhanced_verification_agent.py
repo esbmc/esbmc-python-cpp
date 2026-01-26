@@ -18,13 +18,25 @@ class EnhancedVerificationAgent:
     All tools must be installed - this agent does not adapt to missing tools.
     """
 
-    def __init__(self, api_key: str, force_tools: List[str] = None, esbmc_path: str = None):
+    def __init__(self, api_key: str, force_tools: List[str] = None, esbmc_path: str = None, use_finetuned: bool = False):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = "claude-sonnet-4-5-20250929"
         self.force_tools = force_tools or []
 
         # ESBMC executable path (default to 'esbmc' in PATH)
         self.esbmc_path = esbmc_path or os.environ.get('ESBMC_PATH', 'esbmc')
+
+        # Fine-tuned analyzer (optional)
+        self.finetuned_analyzer = None
+        if use_finetuned:
+            try:
+                from finetuned_analyzer import FinetunedAnalyzer
+                adapter_path = os.environ.get('FINETUNED_ADAPTER_PATH', './finetune/models/test_lora')
+                self.finetuned_analyzer = FinetunedAnalyzer(adapter_path=adapter_path)
+                print(f"✓ Fine-tuned analyzer loaded from {adapter_path}")
+            except Exception as e:
+                print(f"⚠️  Fine-tuned analyzer not available: {e}")
+                self.finetuned_analyzer = None
 
         # Verify required tools are installed
         self._check_prerequisites()
@@ -134,6 +146,17 @@ class EnhancedVerificationAgent:
                     "properties": {
                         "code": {"type": "string", "description": "The Python code with threading to analyze"},
                         "timeout": {"type": "integer", "description": "Maximum execution time in seconds", "default": 5}
+                    },
+                    "required": ["code"]
+                }
+            },
+            {
+                "name": "run_finetuned_analyzer",
+                "description": "Run the fine-tuned ESBMC analyzer model. This model has been specifically trained on ESBMC verification examples and can provide specialized analysis for bug detection including overflow, division by zero, race conditions, deadlocks, array bounds violations, null dereference, logic errors, infinite loops, uninitialized variables, and resource leaks. Use this for quick initial analysis or to get a second opinion.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string", "description": "The Python code to analyze"}
                     },
                     "required": ["code"]
                 }
@@ -481,7 +504,8 @@ Include:
             "convert_python_to_c": self._convert_to_c,
             "run_esbmc": self._run_esbmc,
             "analyze_ast": self._analyze_ast,
-            "run_deadlock_detector": self._run_deadlock_detector
+            "run_deadlock_detector": self._run_deadlock_detector,
+            "run_finetuned_analyzer": self._run_finetuned_analyzer
         }
 
         handler = handlers.get(tool_name)
@@ -1634,6 +1658,25 @@ if deadlock_detected or lock_events:
                 "output": f"Syntax error in code: {str(e)}"
             }
 
+    def _run_finetuned_analyzer(self, code: str, **kwargs) -> Dict:
+        """Run fine-tuned model analyzer"""
+        if self.finetuned_analyzer is None:
+            return {
+                "tool": "run_finetuned_analyzer",
+                "success": False,
+                "output": "Fine-tuned analyzer not available. Enable with --use-finetuned flag and set FINETUNED_ADAPTER_PATH environment variable."
+            }
+
+        # Stream output for faster perceived response
+        result = self.finetuned_analyzer.analyze(code, stream=True)
+
+        return {
+            "tool": "run_finetuned_analyzer",
+            "success": result['success'],
+            "output": result['output'],
+            "model": result.get('model_used', 'unknown')
+        }
+
     def _format_tool_result(self, result: Dict) -> str:
         """Format tool result for Claude with smart truncation"""
         output = "="*60 + "\n"
@@ -1798,6 +1841,10 @@ Examples:
                        help='Force runtime deadlock detector for threading code')
     parser.add_argument('--force-esbmc', action='store_true',
                        help='Force ESBMC formal verification (includes Python-to-C conversion)')
+    parser.add_argument('--use-finetuned', action='store_true',
+                       help='Enable fine-tuned model analyzer (requires FINETUNED_ADAPTER_PATH env var)')
+    parser.add_argument('--force-finetuned', action='store_true',
+                       help='Force fine-tuned analyzer to be called in first iteration')
 
     args = parser.parse_args()
 
@@ -1829,6 +1876,11 @@ Examples:
     if args.force_esbmc:
         force_tools.append('convert_python_to_c')
         force_tools.append('run_esbmc')
+    if args.force_finetuned:
+        if not args.use_finetuned:
+            print("⚠️  Warning: --force-finetuned requires --use-finetuned. Enabling both.")
+            args.use_finetuned = True
+        force_tools.append('run_finetuned_analyzer')
 
     if force_tools:
         print(f"🔧 Forced tools: {', '.join(force_tools)}\n")
@@ -1918,7 +1970,8 @@ print("Done")
         agent = EnhancedVerificationAgent(
             api_key=api_key,
             force_tools=force_tools,
-            esbmc_path=args.esbmc_path
+            esbmc_path=args.esbmc_path,
+            use_finetuned=args.use_finetuned
         )
         result = agent.verify(code, max_iterations=args.max_iterations)
 
@@ -1964,7 +2017,8 @@ print("Done")
         agent = EnhancedVerificationAgent(
             api_key=api_key,
             force_tools=force_tools,
-            esbmc_path=args.esbmc_path
+            esbmc_path=args.esbmc_path,
+            use_finetuned=args.use_finetuned
         )
 
         name, code = test_cases[0]
