@@ -2,13 +2,15 @@
 
 **ESBMC-Python-CPP** is a work-in-progress toolkit that bridges Python code and C/++ verification through the [ESBMC](https://esbmc.org/) model checker. It supports three primary approaches for converting and analyzing Python code:
 
-1. **Static Conversion via Shedskin**  
+1. **Static Conversion via Shedskin**
    Converts Python to C++ code using [Shedskin](https://github.com/shedskin/shedskin).
+   - See [`docs/shedskin.md`](docs/shedskin.md) for a reproducible Docker setup and usage examples.
+   - See [`docs/hybrid-flow.md`](docs/hybrid-flow.md) for a detailed explanation of the hybrid verification flow.
 
-2. **LLM-Based Conversion from Python to C**  
+2. **LLM-Based Conversion from Python to C**
    Uses local or remote LLMs to directly convert Python code to verifiable C code.
 
-3. **Dynamic Tracing**  
+3. **Dynamic Tracing**
    Traces a specific execution path to analyze behavior during runtime.
 
 ---
@@ -241,8 +243,30 @@ export OPENAI_API_BASE=http://localhost:8080/v1
 
 ---
 
+## 🐳 Using Docker with Shedskin
+
+For a fully reproducible environment with Shedskin and ESBMC, you can use the provided Dockerfile:
+
+```bash
+# 1. Rebuild the image (force refresh of dependencies)
+docker build --no-cache -t esbmc-shedskin .
+# or
+make docker-build
+
+# 2. Open an interactive shell with examples copied to /tmp/shedskin-smoke/examples
+make docker-run-example
+
+# 3. Inside the container (already in /tmp/shedskin-smoke/examples):
+shedskin shedskin_runtime_smoke.py
+make
+./shedskin_runtime_smoke
+```
+
+You can replace `shedskin_runtime_smoke.py` with any other Python example that is compatible with Shedskin.
+
+---
+
 ## 📬 Contact & Contributions
 
 This project is under active development. Feedback, issues, and contributions are welcome!
-
 
