@@ -100,12 +100,12 @@ class EnhancedVerificationAgent:
             },
             {
                 "name": "convert_python_to_c",
-                "description": "Convert Python code to C code for formal verification with ESBMC. Analyzes code to determine what verification checks are needed.",
+                "description": "Convert Python code to C code using LLM translation for formal verification with ESBMC. The LLM generates C code that preserves Python semantics for bounded model checking, handling type mappings, data structures, and verification-relevant properties. Can use AST analysis results to guide translation and recommend verification checks.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "code": {"type": "string", "description": "The Python code to convert"},
-                        "analysis": {"type": "object", "description": "Optional: AST analysis results to guide conversion", "default": {}}
+                        "analysis": {"type": "object", "description": "Optional: AST analysis results to guide conversion and provide recommended ESBMC checks", "default": {}}
                     },
                     "required": ["code"]
                 }
@@ -239,7 +239,7 @@ All tools are installed and available.
   * Catches actual deadlocks via timeout
   * Much more reliable than ESBMC for threading code
   * Use this for ANY code with threading.Lock, threading.Thread, etc.
-- convert_python_to_c: Convert Python to C for formal verification (can use AST analysis results)
+- convert_python_to_c: **LLM-based** Python to C translation for formal verification (uses AST analysis to guide translation)
 - run_esbmc: Formal verification on C code with intelligent check selection
   * Available checks: overflow, bounds, div-by-zero, deadlock, pointer, memory-leak
   * Use AST analysis recommendations to select appropriate checks
@@ -255,7 +255,8 @@ All tools are installed and available.
    - Always try to execute: run_python_interpreter (unless it's clearly unsafe)
    - **If threading detected: ALWAYS use run_deadlock_detector** (much better than ESBMC for concurrency)
 3. For formal verification with ESBMC (non-threading code only):
-   - Convert to C using convert_python_to_c (pass AST analysis if available)
+   - Convert to C using convert_python_to_c (pass AST analysis to guide LLM translation)
+   - The LLM generates C code preserving Python semantics for verification
    - Run ESBMC with appropriate checks based on AST analysis recommendations:
      * **check_overflow=true for arithmetic operations** (IMPORTANT: always enable for code with +, -, *, especially with nondet inputs)
      * check_bounds=true for array/list access
@@ -690,8 +691,48 @@ Include:
         finally:
             os.unlink(temp)
 
+    def _build_translation_prompt(self, code: str, analysis: dict, is_esbmc_code: bool) -> str:
+        """Build prompt for LLM to translate Python to C"""
+
+        prompt = f"""Convert the following Python code to C code suitable for ESBMC bounded model checking.
+
+Python Code:
+```python
+{code}
+```
+
+Requirements:
+1. Generate valid C code that preserves the semantics of the Python code for verification purposes
+2. Use appropriate C types based on Python type hints where available
+3. Include necessary headers (#include <stdio.h>, <stdlib.h>, <assert.h>)
+4. Convert Python assertions to C assert() or __ESBMC_assert() statements
+5. Handle esbmc.nondet_*() calls by declaring: unsigned int nondet_uint(); etc.
+6. Convert Python data structures to bounded C equivalents:
+   - Lists → C arrays with explicit size tracking
+   - Dictionaries → C structs or arrays where possible
+   - Classes → C structs with function pointers if needed
+7. Add a main() function that demonstrates the verification scenario
+8. For arithmetic operations, preserve overflow semantics
+9. For array/list accesses, preserve bounds checking semantics
+10. DO NOT define __ESBMC_assert, __ESBMC_assume - these are provided by ESBMC"""
+
+        if is_esbmc_code:
+            prompt += "\n11. This code uses ESBMC nondeterministic inputs - preserve nondet_*() calls"
+
+        if analysis.get('recommended_esbmc_checks'):
+            checks = analysis['recommended_esbmc_checks']
+            prompt += f"\n12. AST analysis recommends these ESBMC checks: {', '.join(checks)}"
+            prompt += "\n    Design the C code to be suitable for these verification properties"
+
+        if analysis.get('has_threading'):
+            prompt += "\n13. WARNING: Threading code detected - this should use runtime deadlock detector, not C conversion"
+
+        prompt += "\n\nGenerate only the C code, without explanations. Wrap in ```c ``` code blocks."
+
+        return prompt
+
     def _convert_to_c(self, code: str, analysis: dict = None, **kwargs) -> Dict:
-        """Convert Python code to C for formal verification"""
+        """Convert Python code to C using LLM for formal verification"""
 
         # Use analysis if provided
         if not analysis:
@@ -700,15 +741,9 @@ Include:
         # Check if this is ESBMC-specific Python code
         is_esbmc_code = 'esbmc.nondet' in code or 'import esbmc' in code
 
-        # Enhanced Python-to-C conversion
-        if is_esbmc_code:
-            c_code = "#include <stdio.h>\n#include <stdlib.h>\n\n"
-        else:
-            c_code = "#include <stdio.h>\n#include <stdlib.h>\n#include <assert.h>\n\n"
-
-        # Parse the Python code
+        # Validate Python syntax first
         try:
-            tree = ast.parse(code)
+            ast.parse(code)
         except SyntaxError as e:
             return {
                 "tool": "convert_python_to_c",
@@ -716,95 +751,35 @@ Include:
                 "output": f"Cannot convert: Python syntax error: {e}"
             }
 
-        converted = False
-        recommended_checks = []
-        has_main_code = False
-        main_code_lines = []
+        # Build prompt for LLM translation
+        prompt = self._build_translation_prompt(code, analysis, is_esbmc_code)
 
-        # First pass: convert function definitions
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef):
-                converted = True
-                func_name = node.name
+        try:
+            # Call LLM to translate Python to C
+            print("🤖 Using LLM to translate Python to C...")
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}]
+            )
 
-                # Extract return type from annotation
-                return_type = "int"
-                if node.returns:
-                    if isinstance(node.returns, ast.Name):
-                        py_type = node.returns.id
-                        type_map = {'int': 'int', 'float': 'float', 'str': 'char*', 'bool': 'int'}
-                        return_type = type_map.get(py_type, 'int')
+            c_code = response.content[0].text.strip()
 
-                # For ESBMC code with large integers, use unsigned int
-                if is_esbmc_code:
-                    return_type = "unsigned int"
+            # Extract C code if wrapped in markdown code blocks
+            if "```c" in c_code:
+                c_code = c_code.split("```c")[1].split("```")[0].strip()
+            elif "```" in c_code:
+                c_code = c_code.split("```")[1].split("```")[0].strip()
 
-                # Build parameter list
-                params = []
-                for arg in node.args.args:
-                    arg_type = "int"
-                    if is_esbmc_code:
-                        arg_type = "unsigned int"
-                    if arg.annotation and isinstance(arg.annotation, ast.Name):
-                        py_type = arg.annotation.id
-                        type_map = {'int': 'int', 'float': 'float', 'str': 'char*', 'bool': 'int'}
-                        arg_type = type_map.get(py_type, 'int')
-                    params.append(f"{arg_type} {arg.arg}")
-
-                param_str = ", ".join(params) if params else "void"
-
-                c_code += f"{return_type} {func_name}({param_str}) {{\n"
-
-                # Convert function body
-                for stmt in node.body:
-                    c_line = self._convert_statement(stmt, recommended_checks, is_esbmc_code)
-                    if c_line:
-                        c_code += c_line
-
-                c_code += "}\n\n"
-
-            elif isinstance(node, ast.Import):
-                # Handle imports like "import esbmc"
-                for alias in node.names:
-                    if alias.name == 'esbmc':
-                        # Add ESBMC nondet declarations
-                        if 'unsigned int nondet_uint()' not in c_code:
-                            c_code = c_code.replace("#include <stdlib.h>\n\n",
-                                "#include <stdlib.h>\n\nunsigned int nondet_uint();\n\n")
-
-            elif isinstance(node, (ast.Assign, ast.Expr, ast.Assert)):
-                # These are main-level statements - save for main()
-                has_main_code = True
-                converted_stmt = self._convert_main_statement(node, is_esbmc_code)
-                if converted_stmt:
-                    main_code_lines.append(converted_stmt)
-
-        if not converted and not has_main_code:
+        except Exception as e:
             return {
                 "tool": "convert_python_to_c",
                 "success": False,
-                "output": "Could not convert: No suitable Python code found for conversion"
+                "output": f"LLM translation failed: {e}"
             }
 
-        # Add main function
-        c_code += "int main() {\n"
-
-        if has_main_code and main_code_lines:
-            # Use the actual code from the Python file
-            for line in main_code_lines:
-                c_code += f"    {line}\n"
-        else:
-            # Generic test harness
-            c_code += "    // Converted from Python - ready for ESBMC verification\n"
-
-        c_code += "    return 0;\n"
-        c_code += "}\n"
-
-        # Combine with AST analysis recommendations
-        if analysis.get('recommended_esbmc_checks'):
-            for check in analysis['recommended_esbmc_checks']:
-                if check not in recommended_checks:
-                    recommended_checks.append(check)
+        # Extract recommended checks from AST analysis
+        recommended_checks = analysis.get('recommended_esbmc_checks', [])
 
         # Save to current directory
         output_file = "converted_code.c"
