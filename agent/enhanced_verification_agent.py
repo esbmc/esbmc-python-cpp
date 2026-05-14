@@ -9,7 +9,13 @@ import tempfile
 import os
 import json
 import ast
-from typing import Dict, List, Optional
+from typing import Dict, List
+
+from esbmc_python_backend import (
+    build_verify_result,
+    invoke_esbmc,
+    probe_python_compatibility,
+)
 
 
 class EnhancedVerificationAgent:
@@ -128,6 +134,24 @@ class EnhancedVerificationAgent:
                 }
             },
             {
+                "name": "run_esbmc_python",
+                "description": "Run ESBMC's direct Python front-end on the source. Sound on the supported Python fragment — VERIFIED/VIOLATION from this tool is authoritative. Prefer this over convert_python_to_c + run_esbmc whenever analyze_ast reports likely_esbmc_python_compatible=true. Returns INCONCLUSIVE with unsupported_construct=true when ESBMC cannot lower the program.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string", "description": "The Python source code to verify directly"},
+                        "check_overflow": {"type": "boolean", "description": "Enable arithmetic overflow checking", "default": False},
+                        "check_bounds": {"type": "boolean", "description": "Enable array bounds checking", "default": False},
+                        "check_div_by_zero": {"type": "boolean", "description": "Enable division-by-zero checking", "default": False},
+                        "check_pointer": {"type": "boolean", "description": "Enable pointer safety checking", "default": False},
+                        "check_memory_leak": {"type": "boolean", "description": "Enable memory-leak checking", "default": False},
+                        "unwind": {"type": "integer", "description": "Loop unwind bound", "default": 10},
+                        "timeout": {"type": "integer", "description": "ESBMC timeout in seconds", "default": 60}
+                    },
+                    "required": ["code"]
+                }
+            },
+            {
                 "name": "analyze_ast",
                 "description": "Parse Python code and analyze its AST to understand structure and detect patterns.",
                 "input_schema": {
@@ -231,7 +255,7 @@ All tools are installed and available.
 - run_pylint: Code quality and error detection
 - run_bandit: Security vulnerability scanning
 - run_flake8: Style guide enforcement
-- analyze_ast: Parse and analyze code structure (provides recommended ESBMC checks)
+- analyze_ast: Parse and analyze code structure (provides recommended ESBMC checks AND a likely_esbmc_python_compatible hint)
 - run_deadlock_detector: **BEST TOOL FOR THREADING** - Runtime deadlock detection for Python threading code
   * Instruments locks to track acquisitions
   * Detects circular wait conditions (Thread A waits for B, B waits for A)
@@ -239,11 +263,16 @@ All tools are installed and available.
   * Catches actual deadlocks via timeout
   * Much more reliable than ESBMC for threading code
   * Use this for ANY code with threading.Lock, threading.Thread, etc.
-- convert_python_to_c: **LLM-based** Python to C translation for formal verification (uses AST analysis to guide translation)
+- run_esbmc_python: **PREFERRED FORMAL BACKEND** - ESBMC's direct Python front-end
+  * Sound on the supported Python fragment — verdicts are authoritative.
+  * Same check flags as run_esbmc: overflow, bounds, div-by-zero, pointer, memory-leak.
+  * No translation step → no spurious counterexamples from LLM mistranslation.
+  * Returns INCONCLUSIVE with unsupported_construct=true on unsupported Python.
+- convert_python_to_c: **LLM-based** Python to C translation. Best-effort only — no semantic-equivalence guarantee.
 - run_esbmc: Formal verification on C code with intelligent check selection
-  * Available checks: overflow, bounds, div-by-zero, deadlock, pointer, memory-leak
-  * Use AST analysis recommendations to select appropriate checks
-  * Set specific check flags (check_overflow, check_bounds, etc.) based on code patterns
+  * Same check flags as run_esbmc_python.
+  * **Best-effort path**: a VIOLATION here is a SUSPICION; a VERIFIED here cannot clear the program.
+  * Use only when run_esbmc_python reports unsupported_construct or when AST analysis says likely_esbmc_python_compatible=false.
   * **NOT RECOMMENDED for threading code** - use run_deadlock_detector instead
 
 **Your Strategy:**
@@ -254,19 +283,22 @@ All tools are installed and available.
    - Always use: pylint, flake8, bandit for comprehensive checking
    - Always try to execute: run_python_interpreter (unless it's clearly unsafe)
    - **If threading detected: ALWAYS use run_deadlock_detector** (much better than ESBMC for concurrency)
-3. For formal verification with ESBMC (non-threading code only):
-   - Convert to C using convert_python_to_c (pass AST analysis to guide LLM translation)
-   - The LLM generates C code preserving Python semantics for verification
-   - Run ESBMC with appropriate checks based on AST analysis recommendations:
+3. For formal verification with ESBMC (non-threading code only), pick exactly ONE backend per program:
+   a. **If analyze_ast reports likely_esbmc_python_compatible=true → use run_esbmc_python directly.**
+      This skips the LLM translation step entirely and gives a sound verdict.
+   b. **Only if run_esbmc_python returns unsupported_construct=true, OR analyze_ast reports
+      likely_esbmc_python_compatible=false**, fall back to convert_python_to_c + run_esbmc.
+      Treat any finding from this fallback path as a SUSPICION, not a verdict.
+   - Pass the same check flags to whichever backend you use:
      * **check_overflow=true for arithmetic operations** (IMPORTANT: always enable for code with +, -, *, especially with nondet inputs)
      * check_bounds=true for array/list access
      * check_div_by_zero=true for division operations
      * check_pointer=true for pointer operations
      * check_memory_leak=true for dynamic memory allocation
      * **Do NOT use check_deadlock=true** - use run_deadlock_detector instead
-   - **OVERFLOW CHECKS ARE AUTO-ENABLED** when arithmetic + nondet detected, but you can force with check_overflow=true
 4. Use at least 4-6 different tools for thorough verification
 5. Provide detailed analysis of each tool's findings
+6. **The final pass/fail verdict is computed by the agent from raw ESBMC outputs, not from your prose.** Your narration explains; it does not decide.
 
 {'**REQUIRED TOOLS (must use):** ' + ', '.join(self.force_tools) if self.force_tools else ''}
 
@@ -357,14 +389,8 @@ Begin comprehensive verification. Start with AST analysis."""
                     if block.type == "text"
                 ])
 
-                return {
-                    "iterations": iteration + 1,
-                    "tools_used": list(all_tool_results.keys()),
-                    "tool_results": all_tool_results,
-                    "conversion_artifacts": conversion_artifacts,
-                    "final_verdict": final_text,
-                    "verified": self._determine_if_verified(final_text)
-                }
+                return build_verify_result(
+                    iteration + 1, all_tool_results, conversion_artifacts, final_text)
 
             print(f"[{iteration + 1}.2] 🔧 Executing {len(tool_uses)} tool(s):")
             for tool_use in tool_uses:
@@ -484,14 +510,8 @@ Include:
         if not final_verdict_text:
             final_verdict_text = final_response.content[0].text
 
-        return {
-            "iterations": iteration + 1,
-            "tools_used": list(all_tool_results.keys()),
-            "tool_results": all_tool_results,
-            "conversion_artifacts": conversion_artifacts,
-            "final_verdict": final_verdict_text,
-            "verified": self._determine_if_verified(final_verdict_text)
-        }
+        return build_verify_result(
+            iteration + 1, all_tool_results, conversion_artifacts, final_verdict_text)
 
     def _execute_tool(self, tool_name: str, code: str, **kwargs) -> Dict:
         """Execute verification tool - assumes all tools are installed"""
@@ -504,6 +524,7 @@ Include:
             "run_flake8": self._run_flake8,
             "convert_python_to_c": self._convert_to_c,
             "run_esbmc": self._run_esbmc,
+            "run_esbmc_python": self._run_esbmc_python,
             "analyze_ast": self._analyze_ast,
             "run_deadlock_detector": self._run_deadlock_detector,
             "run_finetuned_analyzer": self._run_finetuned_analyzer
@@ -1102,142 +1123,109 @@ Requirements:
     def _run_esbmc_attempt(self, filename: str, code: str, unwind: int, timeout: int,
                           check_overflow: bool = False, check_deadlock: bool = False,
                           check_memory_leak: bool = False) -> Dict:
-        """Single ESBMC verification attempt with specific parameters"""
+        """Single ESBMC verification attempt against translated C code."""
 
-        esbmc_cmd = [self.esbmc_path, filename, '--unwind', str(unwind), '--timeout', str(timeout)]
-
-        enabled_checks = ['bounds-check', 'div-by-zero-check', 'pointer-check']
+        enable_flags: List[str] = []
+        disable_flags: List[str] = []
 
         if check_overflow:
-            esbmc_cmd.extend(['--overflow-check', '--no-bounds-check', '--no-div-by-zero-check'])
-            enabled_checks = ['overflow']  # Focus on overflow when explicitly requested
-
+            # Focus on overflow when explicitly requested — matches the previous
+            # behaviour of the C-path attempt helper.
+            enable_flags.append('--overflow-check')
+            disable_flags.extend(['--no-bounds-check', '--no-div-by-zero-check'])
         if check_deadlock:
-            esbmc_cmd.append('--deadlock-check')
-            enabled_checks.append('deadlock')
-
+            enable_flags.append('--deadlock-check')
         if check_memory_leak:
-            esbmc_cmd.append('--memory-leak-check')
-            enabled_checks.append('memory-leak')
-
-        print(f"      🚀 Running: {' '.join(esbmc_cmd)}")
-        print(f"      📡 Streaming output:\n")
+            enable_flags.append('--memory-leak-check')
 
         try:
-            # Use Popen for live streaming
-            import time
-            process = subprocess.Popen(
-                esbmc_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,  # Line buffered
-                universal_newlines=True
+            return invoke_esbmc(
+                filename,
+                esbmc_path=self.esbmc_path,
+                unwind=unwind,
+                timeout=timeout,
+                enable_flags=enable_flags,
+                disable_flags=disable_flags,
             )
-
-            output_lines = []
-            start_time = time.time()
-
-            # Stream output line by line
-            try:
-                for line in process.stdout:
-                    # Print live
-                    print(f"         {line}", end='')
-                    output_lines.append(line)
-
-                    # Check timeout manually
-                    if time.time() - start_time > timeout + 10:
-                        process.kill()
-                        output_lines.append("\n⏱️  ESBMC timeout - process killed\n")
-                        break
-
-                process.wait(timeout=5)  # Wait for process to finish
-                return_code = process.returncode
-
-            except Exception as e:
-                process.kill()
-                output_lines.append(f"\n❌ Error during streaming: {str(e)}\n")
-                return_code = -1
-
-            full_output = ''.join(output_lines)
-
-            # Check for option errors and retry if needed
-            if 'unrecognised option' in full_output or 'unknown_option' in full_output:
-                import re
-                match = re.search(r"unrecognised option '([^']+)'", full_output)
-                if match:
-                    bad_option = match.group(1)
-                    if not bad_option.startswith('--'):
-                        bad_option = '--' + bad_option
-
-                    fixed_cmd = [arg for arg in esbmc_cmd if arg != bad_option]
-                    print(f"\n      🔧 Removed bad option: {bad_option}")
-                    print(f"      🔄 Retrying with fixed command...\n")
-
-                    # Recursive retry with fixed command
-                    process = subprocess.Popen(
-                        fixed_cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
-
-                    output_lines = []
-                    start_time = time.time()
-
-                    for line in process.stdout:
-                        print(f"         {line}", end='')
-                        output_lines.append(line)
-
-                        if time.time() - start_time > timeout + 10:
-                            process.kill()
-                            output_lines.append("\n⏱️  ESBMC timeout - process killed\n")
-                            break
-
-                    process.wait(timeout=5)
-                    return_code = process.returncode
-                    full_output = ''.join(output_lines)
-                    esbmc_cmd = fixed_cmd
-
-            print()  # New line after streaming
-
-            success = return_code == 0 and 'VERIFICATION SUCCESSFUL' in full_output
-
-            inspection_note = f"\n📝 C file: {os.path.abspath(filename)}"
-            inspection_note += f"\n💡 Command: {' '.join(esbmc_cmd)}"
-
-            return {
-                "tool": "esbmc",
-                "success": success,
-                "output": full_output + inspection_note,
-                "return_code": return_code,
-                "enabled_checks": enabled_checks,
-                "saved_file": filename,
-                "command": ' '.join(esbmc_cmd)
-            }
-
         except FileNotFoundError:
             return {
                 "tool": "esbmc",
                 "success": False,
                 "output": "ESBMC command not found",
                 "return_code": -1,
-                "enabled_checks": enabled_checks,
+                "enabled_checks": [f.lstrip('-') for f in enable_flags],
                 "saved_file": filename,
-                "command": ' '.join(esbmc_cmd)
+                "command": f"{self.esbmc_path} {filename}",
+                "verdict": "INCONCLUSIVE",
             }
-        except Exception as e:
+
+    def _run_esbmc_python(self, code: str, check_overflow: bool = False,
+                          check_bounds: bool = False, check_div_by_zero: bool = False,
+                          check_pointer: bool = False, check_memory_leak: bool = False,
+                          unwind: int = 10, timeout: int = 60, **kwargs) -> Dict:
+        """Run ESBMC's direct Python front-end on the source code.
+
+        This backend is sound on the Python fragment it supports — verdicts of
+        VERIFIED or VIOLATION from this tool are authoritative, unlike the
+        Python-to-C translation path which is best-effort.
+
+        The verification check flags are appended to the ESBMC command and any
+        the running ESBMC build does not recognise are stripped on retry by
+        invoke_esbmc.
+        """
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w', suffix='.py', delete=False, encoding='utf-8'
+            ) as f:
+                f.write(code)
+                py_file = f.name
+            print(f"      📁 Saved Python source to: {py_file}")
+        except OSError as e:
             return {
-                "tool": "esbmc",
+                "tool": "run_esbmc_python",
                 "success": False,
-                "output": f"Error: {str(e)}",
-                "return_code": -1,
-                "enabled_checks": enabled_checks,
-                "saved_file": filename,
-                "command": ' '.join(esbmc_cmd)
+                "output": f"Could not save Python file: {e}",
+                "verdict": "INCONCLUSIVE",
             }
+
+        enable_flags: List[str] = []
+        if check_overflow:
+            enable_flags.append('--overflow-check')
+        if check_bounds:
+            enable_flags.append('--bounds-check')
+        if check_div_by_zero:
+            enable_flags.append('--div-by-zero-check')
+        if check_pointer:
+            enable_flags.append('--pointer-check')
+        if check_memory_leak:
+            enable_flags.append('--memory-leak-check')
+
+        try:
+            result = invoke_esbmc(
+                py_file,
+                esbmc_path=self.esbmc_path,
+                unwind=unwind,
+                timeout=timeout,
+                enable_flags=enable_flags,
+            )
+        except FileNotFoundError:
+            return {
+                "tool": "run_esbmc_python",
+                "success": False,
+                "output": "ESBMC command not found",
+                "return_code": -1,
+                "enabled_checks": [f.lstrip('-') for f in enable_flags],
+                "saved_file": py_file,
+                "command": f"{self.esbmc_path} {py_file}",
+                "verdict": "INCONCLUSIVE",
+            }
+
+        # Tag the result with the Claude-facing tool name (matches the key
+        # used by verify()'s aggregator) and a backend label for downstream
+        # display.
+        result["tool"] = "run_esbmc_python"
+        result["backend"] = "esbmc-python"
+        return result
 
     def _run_deadlock_detector(self, code: str, timeout: int = 5, **kwargs) -> Dict:
         """Advanced runtime deadlock detection for Python threading code"""
@@ -1567,6 +1555,10 @@ if deadlock_detected or lock_events:
 
             analysis["recommended_esbmc_checks"] = esbmc_checks
 
+            probe = probe_python_compatibility(tree)
+            analysis["likely_esbmc_python_compatible"] = probe["compatible"]
+            analysis["python_features_unsupported"] = probe["unsupported_features"]
+
             output = "="*60 + "\n"
             output += "AST ANALYSIS REPORT\n"
             output += "="*60 + "\n\n"
@@ -1616,6 +1608,14 @@ if deadlock_detected or lock_events:
                 output += "\n⚠️  THREADING DETECTED:\n"
                 output += "  Use run_deadlock_detector for reliable concurrency verification.\n"
                 output += "  Python-to-C conversion loses threading semantics!\n\n"
+
+            output += "\nESBMC-Python Backend Compatibility:\n"
+            if probe["compatible"]:
+                output += "  ✅ Likely supported — prefer run_esbmc_python (sound, no translation).\n"
+            else:
+                output += "  ⚠️  Unsupported construct(s) detected: "
+                output += ", ".join(probe["unsupported_features"]) + "\n"
+                output += "  Fall back to convert_python_to_c + run_esbmc (heuristic — cannot clear).\n"
 
             output += "\n".join(recommendations)
 
@@ -1740,21 +1740,6 @@ if deadlock_detected or lock_events:
         result += '\n💡 To see complete output, run the command manually'
 
         return result
-
-    def _determine_if_verified(self, verdict_text: str) -> bool:
-        """Determine if code is verified from verdict text"""
-        text_lower = verdict_text.lower()
-
-        # Strong negative indicators
-        strong_negative = ['failed', 'unsafe', 'critical', 'error', 'violation', 'vulnerability']
-        if any(indicator in text_lower for indicator in strong_negative):
-            return False
-
-        # Positive indicators
-        positive = ['verified', 'successful', 'passed', 'safe', 'correct', 'no issues', 'looks good']
-        positive_count = sum(1 for indicator in positive if indicator in text_lower)
-
-        return positive_count >= 2  # Need at least 2 positive indicators
 
 
 if __name__ == "__main__":
